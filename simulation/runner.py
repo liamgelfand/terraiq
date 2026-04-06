@@ -50,8 +50,12 @@ class SimulationResult:
     segment_fuel_L: np.ndarray
     segment_power_kw: np.ndarray
 
+    # Coordinates for map rendering
+    lat: np.ndarray = field(default_factory=lambda: np.array([]))
+    lon: np.ndarray = field(default_factory=lambda: np.array([]))
+
     # Metadata
-    vehicle_name: str
+    vehicle_name: str = ""
     elapsed_seconds: float = 0.0
 
     def print_summary(self):
@@ -145,6 +149,8 @@ class SimulationRunner:
             speed_limits_ms=world.speed_limit_ms,
             segment_fuel_L=fuel_result["segment_fuel_L"],
             segment_power_kw=fuel_result["segment_power_kw"],
+            lat=world.lat,
+            lon=world.lon,
             vehicle_name=self.vehicle.name,
             elapsed_seconds=elapsed,
         )
