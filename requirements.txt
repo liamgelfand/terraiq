@@ -10,3 +10,4 @@ plotly
 shapely
 pyproj
 streamlit
+scikit-learn
