@@ -87,6 +87,8 @@ class SimulationRunner:
     def __init__(self, vehicle: VehicleProfile):
         self.vehicle = vehicle
         self.vehicle_model = VehicleModel(vehicle)
+        self._cached_world: WorldModel | None = None
+        self._cached_route_key: tuple | None = None
 
     def run(
         self,
@@ -114,22 +116,15 @@ class SimulationRunner:
         """
         t0 = time.time()
 
-        print(f"\nRunning baseline simulation: {route_name}")
-        route_points = fetch_route(
-            origin,
-            destination,
-            network_type=network_type,
-            default_speed_limit_kmh=default_speed_limit_kmh,
-        )
-
-        world = WorldModel.from_route_points(route_points)
-        print(world.summary())
+        print(f"\nRunning baseline simulation: {route_name}", flush=True)
+        world = self._fetch_world(origin, destination, network_type, default_speed_limit_kmh)
+        print(world.summary(), flush=True)
 
         speed_profile = build_baseline_speed_profile(
             world, self.vehicle, target_speed_ms=target_speed_ms
         )
 
-        print("Computing fuel consumption...")
+        print("Computing fuel consumption...", flush=True)
         fuel_result = self.vehicle_model.compute_fuel_consumption(world, speed_profile)
 
         elapsed = time.time() - t0
@@ -154,3 +149,94 @@ class SimulationRunner:
             vehicle_name=self.vehicle.name,
             elapsed_seconds=elapsed,
         )
+
+    def run_optimized(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        route_name: str = "Route",
+        spatial_step_m: float = 100.0,
+        network_type: str = "drive",
+        default_speed_limit_kmh: float = 90.0,
+    ) -> SimulationResult:
+        """
+        Fetch the route and compute fuel using the MPC optimizer.
+
+        Reuses the cached WorldModel if the route matches a previous run()
+        call — so running baseline then optimized on the same route only
+        fetches the road network once.
+
+        Args:
+            origin: (lat, lon) start point
+            destination: (lat, lon) end point
+            route_name: label for the result summary
+            spatial_step_m: optimizer spatial discretization step (meters)
+            network_type: OSMnx network type
+            default_speed_limit_kmh: fallback speed limit
+
+        Returns:
+            SimulationResult with optimized speed profile and fuel numbers
+        """
+        from optimizer.mpc_optimizer import optimize_full_route
+
+        t0 = time.time()
+
+        print(f"\nRunning optimized simulation: {route_name}", flush=True)
+        world = self._fetch_world(origin, destination, network_type, default_speed_limit_kmh)
+        print(world.summary(), flush=True)
+
+        print("Optimizing speed trajectory...", flush=True)
+        speed_profile = optimize_full_route(world, self.vehicle, spatial_step_m=spatial_step_m)
+
+        print("Computing fuel consumption...", flush=True)
+        fuel_result = self.vehicle_model.compute_fuel_consumption(world, speed_profile)
+
+        elapsed = time.time() - t0
+
+        return SimulationResult(
+            route_name=route_name,
+            total_distance_km=world.total_distance_km,
+            elevation_gain_m=world.elevation_gain_m,
+            elevation_loss_m=world.elevation_loss_m,
+            speed_profile_ms=speed_profile,
+            total_fuel_liters=fuel_result["total_fuel_liters"],
+            total_fuel_kg=fuel_result["total_fuel_kg"],
+            fuel_per_100km=fuel_result["fuel_per_100km"],
+            distances_m=world.distance_m,
+            elevations_m=world.elevation_m,
+            grades=world.grade,
+            speed_limits_ms=world.speed_limit_ms,
+            segment_fuel_L=fuel_result["segment_fuel_L"],
+            segment_power_kw=fuel_result["segment_power_kw"],
+            lat=world.lat,
+            lon=world.lon,
+            vehicle_name=self.vehicle.name,
+            elapsed_seconds=elapsed,
+        )
+
+    def _fetch_world(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        network_type: str,
+        default_speed_limit_kmh: float,
+    ) -> WorldModel:
+        """
+        Fetch and cache the WorldModel for a route.
+        Repeated calls with the same origin/destination skip the network fetch.
+        """
+        route_key = (origin, destination, network_type, default_speed_limit_kmh)
+        if self._cached_route_key == route_key and self._cached_world is not None:
+            print("Using cached route data.", flush=True)
+            return self._cached_world
+
+        route_points = fetch_route(
+            origin,
+            destination,
+            network_type=network_type,
+            default_speed_limit_kmh=default_speed_limit_kmh,
+        )
+        world = WorldModel.from_route_points(route_points)
+        self._cached_world = world
+        self._cached_route_key = route_key
+        return world

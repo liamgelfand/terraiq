@@ -81,8 +81,18 @@ with st.sidebar:
     vehicle_choice = st.selectbox("Vehicle", ["2022 Freightliner Cascadia DD15"])
 
     st.divider()
+    st.header("Mode")
+    mode = st.radio("Simulation mode", ["Baseline only", "Baseline + Optimizer"])
+    spatial_step = st.slider(
+        "Optimizer resolution (m)",
+        min_value=50, max_value=300, value=100, step=50,
+        help="Smaller = more accurate but slower. 100m recommended.",
+        disabled=(mode == "Baseline only"),
+    )
+
+    st.divider()
     st.header("Speed")
-    use_fixed = st.checkbox("Fixed speed (ignore limits)")
+    use_fixed = st.checkbox("Fixed speed (ignore limits)", disabled=(mode != "Baseline only"))
     fixed_kmh = st.slider("Speed (km/h)", 50, 120, 90, 5, disabled=not use_fixed)
 
     run = st.button("Run Simulation", type="primary", use_container_width=True)
@@ -106,10 +116,11 @@ vehicle_map = {"2022 Freightliner Cascadia DD15": Freightliner2022()}
 vehicle = vehicle_map[vehicle_choice]
 target_speed_ms = (fixed_kmh / 3.6) if use_fixed else None
 
-with st.spinner("Fetching route, elevation data, and computing fuel..."):
-    runner = SimulationRunner(vehicle=vehicle)
+runner = SimulationRunner(vehicle=vehicle)
+
+with st.spinner("Fetching route and elevation data..."):
     try:
-        result = runner.run(
+        baseline = runner.run(
             origin=(orig_lat, orig_lon),
             destination=(dest_lat, dest_lon),
             route_name=route_name,
@@ -119,20 +130,55 @@ with st.spinner("Fetching route, elevation data, and computing fuel..."):
         st.error(f"Simulation failed: {e}")
         st.stop()
 
-st.success(f"Simulation complete in {result.elapsed_seconds:.1f}s")
+optimized = None
+if mode == "Baseline + Optimizer":
+    with st.spinner(f"Optimizing speed trajectory ({spatial_step}m resolution)..."):
+        try:
+            optimized = runner.run_optimized(
+                origin=(orig_lat, orig_lon),
+                destination=(dest_lat, dest_lon),
+                route_name=route_name,
+                spatial_step_m=float(spatial_step),
+            )
+        except Exception as e:
+            st.error(f"Optimizer failed: {e}")
+            st.stop()
+
+st.success(f"Done in {baseline.elapsed_seconds + (optimized.elapsed_seconds if optimized else 0):.1f}s")
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Distance", f"{result.total_distance_km:.1f} km")
-m2.metric("Total Fuel", f"{result.total_fuel_liters:.1f} L")
-m3.metric("Efficiency", f"{result.fuel_per_100km:.1f} L/100km")
-m4.metric("Elevation Gain", f"+{result.elevation_gain_m:.0f} m")
-m5.metric("CO₂ (approx)", f"{result.total_fuel_liters * 2.68:.0f} kg")
+result = baseline
+if optimized:
+    from simulation.evaluator import EvaluationReport
+    report = EvaluationReport(baseline=baseline, optimized=optimized)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric("Distance", f"{baseline.total_distance_km:.1f} km")
+    m2.metric("Baseline Fuel", f"{baseline.total_fuel_liters:.1f} L")
+    m3.metric("Optimized Fuel", f"{optimized.total_fuel_liters:.1f} L")
+    m4.metric("Fuel Saved", f"{report.fuel_saved_liters:.1f} L", delta=f"-{report.fuel_saved_pct:.1f}%")
+    m5.metric("Elev. Gain", f"+{baseline.elevation_gain_m:.0f} m")
+    m6.metric("CO₂ Saved", f"{report.co2_saved_kg:.1f} kg")
+else:
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Distance", f"{result.total_distance_km:.1f} km")
+    m2.metric("Total Fuel", f"{result.total_fuel_liters:.1f} L")
+    m3.metric("Efficiency", f"{result.fuel_per_100km:.1f} L/100km")
+    m4.metric("Elevation Gain", f"+{result.elevation_gain_m:.0f} m")
+    m5.metric("CO₂ (approx)", f"{result.total_fuel_liters * 2.68:.0f} kg")
 
 st.divider()
 
 # ── Charts ────────────────────────────────────────────────────────────────────
+
+if optimized:
+    from visualization.plotter import plot_comparison
+    fig_compare = plot_comparison(report, show=False)
+    st.subheader("Baseline vs Optimized")
+    st.pyplot(fig_compare, use_container_width=True)
+    plt.close(fig_compare)
+    st.divider()
+    st.subheader("Baseline Detail")
 
 dist_km = result.distances_m / 1000.0
 seg_dist_km = (result.distances_m[:-1] + result.distances_m[1:]) / 2000.0
