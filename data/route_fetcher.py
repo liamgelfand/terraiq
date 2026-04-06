@@ -45,16 +45,24 @@ def fetch_route(
     Returns:
         List of RoutePoint objects with distance, elevation, grade, speed limit.
     """
-    print(f"Fetching road network around route...")
+    print(f"Fetching road network around route...", flush=True)
     padding_deg = 0.05  # ~5 km buffer around the bounding box
     min_lat = min(origin[0], destination[0]) - padding_deg
     max_lat = max(origin[0], destination[0]) + padding_deg
     min_lon = min(origin[1], destination[1]) - padding_deg
     max_lon = max(origin[1], destination[1]) + padding_deg
+
+    # Filter to major roads only — dramatically reduces download size for long routes.
+    # Residential/service roads are irrelevant for freight routing.
+    highway_filter = (
+        '["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link'
+        '|secondary|secondary_link"]'
+    )
+
     # OSMnx 2.x bbox format: (west, south, east, north) = (min_lon, min_lat, max_lon, max_lat)
     graph = ox.graph_from_bbox(
         (min_lon, min_lat, max_lon, max_lat),
-        network_type=network_type,
+        custom_filter=highway_filter,
         simplify=True,
     )
     graph = ox.add_edge_speeds(graph)
@@ -63,7 +71,7 @@ def fetch_route(
     origin_node = ox.nearest_nodes(graph, X=origin[1], Y=origin[0])
     dest_node = ox.nearest_nodes(graph, X=destination[1], Y=destination[0])
 
-    print("Computing shortest path...")
+    print("Computing shortest path...", flush=True)
     path_nodes = ox.shortest_path(graph, origin_node, dest_node, weight="length")
     if path_nodes is None:
         raise ValueError("No path found between the given coordinates.")
@@ -74,8 +82,8 @@ def fetch_route(
         graph, path_nodes, default_speed_limit_kmh
     )
 
-    print(f"Route has {len(coords)} points, total distance: {distances[-1]/1000:.1f} km")
-    print("Fetching elevation data...")
+    print(f"Route has {len(coords)} points, total distance: {distances[-1]/1000:.1f} km", flush=True)
+    print("Fetching elevation data...", flush=True)
     elevations = _fetch_elevations(coords)
 
     grades = _compute_grades(distances, elevations)
