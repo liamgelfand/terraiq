@@ -1,0 +1,11 @@
+numpy
+scipy
+pandas
+casadi
+osmnx
+networkx
+requests
+matplotlib
+plotly
+shapely
+pyproj
