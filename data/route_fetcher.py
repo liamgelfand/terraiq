@@ -46,9 +46,13 @@ def fetch_route(
         List of RoutePoint objects with distance, elevation, grade, speed limit.
     """
     print(f"Fetching road network around route...")
-    graph = ox.graph_from_point(
-        origin,
-        dist=_haversine_m(origin, destination) * 0.6 + 5000,
+    padding_deg = 0.05  # ~5 km buffer around the bounding box
+    min_lat = min(origin[0], destination[0]) - padding_deg
+    max_lat = max(origin[0], destination[0]) + padding_deg
+    min_lon = min(origin[1], destination[1]) - padding_deg
+    max_lon = max(origin[1], destination[1]) + padding_deg
+    graph = ox.graph_from_bbox(
+        (min_lat, min_lon, max_lat, max_lon),
         network_type=network_type,
         simplify=True,
     )
