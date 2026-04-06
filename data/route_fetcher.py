@@ -51,8 +51,9 @@ def fetch_route(
     max_lat = max(origin[0], destination[0]) + padding_deg
     min_lon = min(origin[1], destination[1]) - padding_deg
     max_lon = max(origin[1], destination[1]) + padding_deg
+    # OSMnx 2.x bbox format: (west, south, east, north) = (min_lon, min_lat, max_lon, max_lat)
     graph = ox.graph_from_bbox(
-        (min_lat, min_lon, max_lat, max_lon),
+        (min_lon, min_lat, max_lon, max_lat),
         network_type=network_type,
         simplify=True,
     )
