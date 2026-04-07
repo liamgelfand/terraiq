@@ -90,6 +90,24 @@ def optimize_full_route(
         max_decel_ms2=vehicle.max_decel_ms2,
     )
 
+    # Auto-scale: cap at 1000 steps regardless of route length to keep solve time bounded.
+    # This adjusts the spatial step upward for long routes (e.g. 200m for 200km, 400m for 400km).
+    MAX_STEPS = 1000
+    if n_steps > MAX_STEPS:
+        spatial_step_m = world.total_distance_m / MAX_STEPS
+        n_steps = MAX_STEPS
+        distances = np.linspace(0.0, world.total_distance_m, n_steps)
+        ds = distances[1] - distances[0]
+        grades = np.interp(distances, world.distance_m, world.grade)
+        speed_limits = np.interp(distances, world.distance_m, world.speed_limit_ms)
+        constraints = build_route_constraints(
+            distances=distances,
+            speed_limits_ms=speed_limits,
+            max_vehicle_speed_ms=vehicle.max_speed_ms,
+            max_accel_ms2=vehicle.max_accel_ms2,
+            max_decel_ms2=vehicle.max_decel_ms2,
+        )
+
     print(f"  Solving NLP: {n_steps} steps at {spatial_step_m:.0f}m resolution...", flush=True)
 
     opt_speeds = _solve_nlp(

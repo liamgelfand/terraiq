@@ -33,10 +33,10 @@ PRESETS = {
         "destination": (38.73, -121.38),
         "name": "Donner Pass → Sacramento",
     },
-    "Salt Lake City → Las Vegas (I-15)": {
-        "origin": (40.76, -111.89),
-        "destination": (36.17, -115.14),
-        "name": "Salt Lake City → Las Vegas",
+    "Provo → St. George (I-15)": {
+        "origin": (40.23, -111.66),
+        "destination": (37.10, -113.58),
+        "name": "Provo → St. George",
     },
     "Denver → Grand Junction (I-70)": {
         "origin": (39.74, -104.98),

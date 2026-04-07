@@ -45,9 +45,9 @@ ROUTES = [
         "terrain":     "Rocky Mountain grades",
     },
     {
-        "name":        "Salt Lake City → Las Vegas",
-        "origin":      (40.76, -111.89),   # Salt Lake City, UT
-        "destination": (36.17, -115.14),   # Las Vegas, NV
+        "name":        "Provo → St. George",
+        "origin":      (40.23, -111.66),   # Provo, UT
+        "destination": (37.10, -113.58),   # St. George, UT
         "terrain":     "Desert rolling",
     },
     {
