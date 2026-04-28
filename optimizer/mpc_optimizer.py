@@ -146,9 +146,10 @@ def _solve_nlp(
     """
     Build and solve the CasADi NLP using the w = v² substitution.
 
-    Substituting w[i] = v[i]² makes ALL force terms linear in w, producing
-    a convex NLP that IPOPT solves reliably. The time constraint
-    sum(ds / sqrt(w_mid)) <= T_budget is convex in w and handled cleanly.
+    Substituting w[i] = v[i]² makes ALL force terms linear in w. The travel
+    time constraint sum(ds/sqrt(w_mid)) <= T is encoded without any sqrt via
+    the epigraph form: t[i]^2 * w_mid >= ds^2, sum(t) <= T. This eliminates
+    the NaN-in-sqrt issue when IPOPT explores w near zero during barrier steps.
 
     Returns the optimal speed array (m/s) at the n_steps spatial points.
     """
@@ -160,25 +161,26 @@ def _solve_nlp(
     # Auxiliary variables: engine work per segment (non-negative)
     p = opti.variable(n_steps - 1)
 
+    # Auxiliary variables: segment travel times (avoids sqrt in time constraint).
+    # The travel time for segment i is t[i] = ds / v_mid = ds / sqrt(w_mid).
+    # Instead of encoding this as sum(ds/sqrt(w_mid)) <= T, we use the
+    # equivalent epigraph form:  t[i]^2 * w_mid >= ds^2  (for t[i] >= 0).
+    # This is a smooth quadratic constraint — no sqrt, no NaN.
+    t = opti.variable(n_steps - 1)
+
     # Vehicle constants
     m   = vehicle.mass_kg
     Cd  = vehicle.drag_coefficient
     A   = vehicle.frontal_area_m2
     Crr = vehicle.rolling_resistance
 
-    # Small regularization to prevent sqrt(0) during IPOPT's interior iterations
-    W_EPS = 0.25  # = (0.5 m/s)², negligible vs v_min=5 m/s (w_min=25)
+    seg_speed_limits = (constraints.speed_upper_ms[:-1] + constraints.speed_upper_ms[1:]) / 2.0
 
-    # Build constraints for each segment
-    travel_time = 0.0
     for i in range(1, n_steps):
-        # Midpoint squared speed (matches vehicle_model midpoint convention)
         w_mid = (w[i] + w[i - 1]) / 2.0
-
-        # Midpoint grade (matches vehicle_model's segment midpoint evaluation)
         g_mid = (grades[i] + grades[i - 1]) / 2.0
 
-        # Forces — all linear in w
+        # Forces (all linear in w)
         f_aero    = 0.5 * RHO_AIR * Cd * A * w_mid
         f_roll    = Crr * m * G
         f_grade   = m * G * g_mid
@@ -190,14 +192,15 @@ def _solve_nlp(
         opti.subject_to(p[i - 1] >= work_i)
         opti.subject_to(p[i - 1] >= 0)
 
-        # Travel time — W_EPS prevents NaN in sqrt during interior iterations
-        travel_time = travel_time + ds / ca.sqrt(w_mid + W_EPS)
+        # t[i-1] >= ds / sqrt(w_mid) encoded as t[i-1]^2 * w_mid >= ds^2
+        opti.subject_to(t[i - 1] >= 0)
+        opti.subject_to(t[i - 1] ** 2 * w_mid >= ds ** 2)
 
     # Objective: minimize total propulsive work
     opti.minimize(ca.sum1(p))
 
-    # Travel time budget: arrive no later than T_budget
-    opti.subject_to(travel_time <= time_budget_s)
+    # Travel time budget: sum of segment times <= T_budget
+    opti.subject_to(ca.sum1(t) <= time_budget_s)
 
     # Speed (squared) bounds
     w_lower = constraints.speed_lower_ms ** 2
@@ -212,9 +215,11 @@ def _solve_nlp(
         opti.subject_to(dw <=  constraints.max_accel_ms2)
         opti.subject_to(dw >= -constraints.max_decel_ms2)
 
-    # Warm start: initialize at speed limits
+    # Warm start
     opti.set_initial(w, constraints.speed_upper_ms ** 2)
     opti.set_initial(p, np.zeros(n_steps - 1))
+    t_init = ds / np.maximum(seg_speed_limits, 0.1)
+    opti.set_initial(t, t_init)
 
     solver_opts = {
         "ipopt.print_level":            5 if verbose else 0,
