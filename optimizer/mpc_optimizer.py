@@ -53,6 +53,7 @@ def optimize_full_route(
     world: WorldModel,
     vehicle: VehicleProfile,
     spatial_step_m: float = DEFAULT_SPATIAL_STEP_M,
+    time_budget_fraction: float = 1.0,
     verbose: bool = False,
 ) -> np.ndarray:
     """
@@ -64,8 +65,11 @@ def optimize_full_route(
     Args:
         world: WorldModel with grade, speed limits, and distance data
         vehicle: VehicleProfile with mass, aero, and performance specs
-        spatial_step_m: spatial discretization step in meters (smaller = more
-                        accurate but slower; 50–200m is a good range)
+        spatial_step_m: spatial discretization step in meters
+        time_budget_fraction: max allowed travel time as a fraction of baseline
+                              (1.05 = no more than 5% slower than speed limits).
+                              This prevents the optimizer from simply slowing
+                              down everywhere to reduce drag.
         verbose: if True, print IPOPT solver output
 
     Returns:
@@ -108,6 +112,12 @@ def optimize_full_route(
             max_decel_ms2=vehicle.max_decel_ms2,
         )
 
+    # Baseline travel time: sum over n_steps-1 SEGMENTS (not n_steps points)
+    # Using midpoint speed limit per segment to match the optimizer's v_mid convention
+    seg_speed_limits = (speed_limits[:-1] + speed_limits[1:]) / 2.0
+    baseline_time_s = float(np.sum(ds / np.maximum(seg_speed_limits, 0.1)))
+    time_budget_s = baseline_time_s * time_budget_fraction
+
     print(f"  Solving NLP: {n_steps} steps at {spatial_step_m:.0f}m resolution...", flush=True)
 
     opt_speeds = _solve_nlp(
@@ -116,6 +126,7 @@ def optimize_full_route(
         grades=grades,
         constraints=constraints,
         vehicle=vehicle,
+        time_budget_s=time_budget_s,
         verbose=verbose,
     )
 
@@ -129,17 +140,25 @@ def _solve_nlp(
     grades: np.ndarray,
     constraints,
     vehicle: VehicleProfile,
+    time_budget_s: float,
     verbose: bool,
 ) -> np.ndarray:
     """
-    Build and solve the CasADi NLP.
+    Build and solve the CasADi NLP using the w = v² substitution.
 
-    Returns the optimal speed array at the n_steps spatial points.
+    Substituting w[i] = v[i]² makes ALL force terms linear in w, producing
+    a convex NLP that IPOPT solves reliably. The time constraint
+    sum(ds / sqrt(w_mid)) <= T_budget is convex in w and handled cleanly.
+
+    Returns the optimal speed array (m/s) at the n_steps spatial points.
     """
     opti = ca.Opti()
 
-    # Decision variables: speed at each spatial step
-    v = opti.variable(n_steps)
+    # Decision variables: w[i] = v[i]² (squared speeds, m²/s²)
+    w = opti.variable(n_steps)
+
+    # Auxiliary variables: engine work per segment (non-negative)
+    p = opti.variable(n_steps - 1)
 
     # Vehicle constants
     m   = vehicle.mass_kg
@@ -147,60 +166,82 @@ def _solve_nlp(
     A   = vehicle.frontal_area_m2
     Crr = vehicle.rolling_resistance
 
-    # Objective: total propulsive work (proportional to fuel)
-    total_work = 0.0
+    # Small regularization to prevent sqrt(0) during IPOPT's interior iterations
+    W_EPS = 0.25  # = (0.5 m/s)², negligible vs v_min=5 m/s (w_min=25)
+
+    # Build constraints for each segment
+    travel_time = 0.0
     for i in range(1, n_steps):
-        v_mid = (v[i] + v[i - 1]) / 2.0
+        # Midpoint squared speed (matches vehicle_model midpoint convention)
+        w_mid = (w[i] + w[i - 1]) / 2.0
 
-        # Kinematic acceleration from speed change over spatial step
-        accel = (v[i] ** 2 - v[i - 1] ** 2) / (2.0 * ds)
+        # Midpoint grade (matches vehicle_model's segment midpoint evaluation)
+        g_mid = (grades[i] + grades[i - 1]) / 2.0
 
-        # Longitudinal forces at midpoint
-        f_aero    = 0.5 * RHO_AIR * Cd * A * v_mid ** 2
+        # Forces — all linear in w
+        f_aero    = 0.5 * RHO_AIR * Cd * A * w_mid
         f_roll    = Crr * m * G
-        f_grade   = m * G * grades[i]           # sin(arctan(g)) ≈ g for |g| < 0.2
-        f_inertia = m * accel
+        f_grade   = m * G * g_mid
+        f_inertia = m * (w[i] - w[i - 1]) / (2.0 * ds)
 
-        f_total = f_aero + f_roll + f_grade + f_inertia
+        work_i = (f_aero + f_roll + f_grade + f_inertia) * ds
 
-        # Only penalize positive force — engine only burns fuel under positive load.
-        # fmax is smooth enough for IPOPT via an internal reformulation.
-        total_work = total_work + ca.fmax(f_total * ds, 0.0)
+        # p[i-1] = max(work_i, 0)
+        opti.subject_to(p[i - 1] >= work_i)
+        opti.subject_to(p[i - 1] >= 0)
 
-    opti.minimize(total_work)
+        # Travel time — W_EPS prevents NaN in sqrt during interior iterations
+        travel_time = travel_time + ds / ca.sqrt(w_mid + W_EPS)
 
-    # Speed bound constraints
+    # Objective: minimize total propulsive work
+    opti.minimize(ca.sum1(p))
+
+    # Travel time budget: arrive no later than T_budget
+    opti.subject_to(travel_time <= time_budget_s)
+
+    # Speed (squared) bounds
+    w_lower = constraints.speed_lower_ms ** 2
+    w_upper = constraints.speed_upper_ms ** 2
     for i in range(n_steps):
-        opti.subject_to(v[i] >= constraints.speed_lower_ms[i])
-        opti.subject_to(v[i] <= constraints.speed_upper_ms[i])
+        opti.subject_to(w[i] >= w_lower[i])
+        opti.subject_to(w[i] <= w_upper[i])
 
-    # Acceleration / deceleration comfort constraints
+    # Acceleration / deceleration: (w[i]-w[i-1])/(2*ds) in [-a_max, a_max]
     for i in range(1, n_steps):
-        accel = (v[i] ** 2 - v[i - 1] ** 2) / (2.0 * ds)
-        opti.subject_to(accel <=  constraints.max_accel_ms2)
-        opti.subject_to(accel >= -constraints.max_decel_ms2)
+        dw = (w[i] - w[i - 1]) / (2.0 * ds)
+        opti.subject_to(dw <=  constraints.max_accel_ms2)
+        opti.subject_to(dw >= -constraints.max_decel_ms2)
 
-    # Warm start: initialize at speed limits (feasible starting point)
-    opti.set_initial(v, constraints.speed_upper_ms)
+    # Warm start: initialize at speed limits
+    opti.set_initial(w, constraints.speed_upper_ms ** 2)
+    opti.set_initial(p, np.zeros(n_steps - 1))
 
-    # IPOPT solver options
     solver_opts = {
-        "ipopt.print_level":    5 if verbose else 0,
-        "ipopt.max_iter":       2000,
-        "ipopt.tol":            1e-4,
-        "ipopt.acceptable_tol": 1e-3,
-        "print_time":           1 if verbose else 0,
+        "ipopt.print_level":            5 if verbose else 0,
+        "ipopt.max_iter":               3000,
+        "ipopt.tol":                    1e-5,
+        "ipopt.acceptable_tol":         1e-4,
+        "ipopt.acceptable_iter":        10,
+        "ipopt.mu_strategy":            "adaptive",
+        "ipopt.hessian_approximation":  "limited-memory",
+        "print_time":                   1 if verbose else 0,
     }
     opti.solver("ipopt", solver_opts)
 
     try:
         sol = opti.solve()
-        speeds = sol.value(v)
+        w_opt = sol.value(w)
+        converged = True
     except RuntimeError as e:
-        print(f"  Optimizer did not converge cleanly: {e}", flush=True)
-        print("  Using best feasible solution found so far.", flush=True)
-        speeds = opti.debug.value(v)
+        print(f"  Optimizer warning: {e}", flush=True)
+        print("  Using best solution found so far.", flush=True)
+        w_opt = opti.debug.value(w)
+        converged = False
 
-    # Clamp to ensure strict feasibility after solve
+    if converged:
+        print("  Converged successfully.", flush=True)
+
+    # Convert w back to v, clamp to speed bounds
+    speeds = np.sqrt(np.maximum(w_opt, 0.0))
     speeds = np.clip(speeds, constraints.speed_lower_ms, constraints.speed_upper_ms)
     return speeds

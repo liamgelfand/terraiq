@@ -175,7 +175,7 @@ def _save_csv(results: list[dict]):
         "route", "terrain", "distance_km", "elev_gain_m",
         "baseline_L", "optimized_L", "saved_L", "saved_pct", "co2_saved_kg", "status",
     ]
-    with open(csv_path, "w", newline="") as f:
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
