@@ -53,7 +53,7 @@ def optimize_full_route(
     world: WorldModel,
     vehicle: VehicleProfile,
     spatial_step_m: float = DEFAULT_SPATIAL_STEP_M,
-    time_budget_fraction: float = 1.0,
+    time_budget_fraction: float = 1.02,
     verbose: bool = False,
 ) -> np.ndarray:
     """
@@ -94,9 +94,10 @@ def optimize_full_route(
         max_decel_ms2=vehicle.max_decel_ms2,
     )
 
-    # Auto-scale: cap at 1000 steps regardless of route length to keep solve time bounded.
-    # This adjusts the spatial step upward for long routes (e.g. 200m for 200km, 400m for 400km).
-    MAX_STEPS = 1000
+    # Auto-scale: cap at 500 steps. Exact-Hessian IPOPT is much faster per iteration
+    # than L-BFGS but each iteration costs more, so a smaller problem converges faster.
+    # At 500 steps, a 400km route uses 800m spacing — still captures terrain well.
+    MAX_STEPS = 500
     if n_steps > MAX_STEPS:
         spatial_step_m = world.total_distance_m / MAX_STEPS
         n_steps = MAX_STEPS
@@ -218,17 +219,21 @@ def _solve_nlp(
     # Warm start
     opti.set_initial(w, constraints.speed_upper_ms ** 2)
     opti.set_initial(p, np.zeros(n_steps - 1))
-    t_init = ds / np.maximum(seg_speed_limits, 0.1)
+    # Initialise t slightly below the budget boundary so IPOPT starts strictly feasible
+    t_init = (ds / np.maximum(seg_speed_limits, 0.1)) * 0.99
     opti.set_initial(t, t_init)
 
     solver_opts = {
         "ipopt.print_level":            5 if verbose else 0,
-        "ipopt.max_iter":               3000,
-        "ipopt.tol":                    1e-5,
-        "ipopt.acceptable_tol":         1e-4,
+        "ipopt.max_iter":               500,
+        "ipopt.tol":                    1e-4,
+        "ipopt.acceptable_tol":         1e-3,
         "ipopt.acceptable_iter":        10,
         "ipopt.mu_strategy":            "adaptive",
-        "ipopt.hessian_approximation":  "limited-memory",
+        "ipopt.nlp_scaling_method":     "gradient-based",
+        # No hessian_approximation override — use CasADi's exact sparse Hessian.
+        # L-BFGS was causing non-convergence because it can't capture the coupling
+        # between t[i] and w[i] in the epigraph constraints.
         "print_time":                   1 if verbose else 0,
     }
     opti.solver("ipopt", solver_opts)
