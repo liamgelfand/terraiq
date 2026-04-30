@@ -1,3 +1,4 @@
+# Simulation core
 numpy
 scipy
 pandas
@@ -9,5 +10,19 @@ matplotlib
 plotly
 shapely
 pyproj
-streamlit
 scikit-learn
+
+# API
+fastapi
+uvicorn[standard]
+pydantic-settings
+
+# Database
+sqlalchemy[asyncio]
+asyncpg
+psycopg2-binary
+alembic
+
+# Task queue
+celery[redis]
+redis
