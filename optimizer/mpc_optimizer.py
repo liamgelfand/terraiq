@@ -1,30 +1,29 @@
 """
-MPC Optimizer: fuel-optimal speed trajectory using CasADi + IPOPT.
+Fuel-optimal speed trajectory optimizer.
 
-For Phase 1 simulation, this solves a *global* optimization over the full route
-rather than receding-horizon MPC. This gives the theoretical best-case fuel
-savings achievable with perfect terrain knowledge — the ideal ceiling for
-what the product can deliver.
+Decision variable: v[i]  (speed in m/s at spatial step i)
 
-The optimization problem (spatially discretized):
-    minimize    sum_i  max(F_total_i, 0) * ds        [propulsive work]
-    subject to  v_min  <= v[i] <= speed_limit[i]     [speed bounds]
-                a[i]   <= max_accel                   [comfort acceleration]
-                -a[i]  <= max_decel                   [comfort deceleration]
+Using v directly (not w = v²):
+  - Travel time per segment = ds / v_mid  →  exact, convex, no sqrt needed
+  - v_min > 0 is a hard lower bound, so v_mid > 0 always → no NaN ever
+  - Aero force = 0.5·ρ·Cd·A·v_mid²  →  quadratic; exact Hessian handles it
+  - Inertia    = m·(v[i]²−v[i-1]²)/(2·ds) → also quadratic in v
 
-where:
-    v[i]      = speed at spatial step i (decision variable)
-    ds        = spatial step size (meters)
-    a[i]      = (v[i]^2 - v[i-1]^2) / (2*ds)        [kinematic accel]
-    F_total   = F_aero + F_roll + F_grade + F_inertia [longitudinal forces]
+Formulation
+-----------
+    minimize    Σ p[i]                                   (engine work, J)
+    subject to  p[i] ≥ (F_aero + F_roll + F_grade + F_inertia)·ds  [work constraint]
+                p[i] ≥ 0
+                Σ ds/v_mid[i] ≤ T_budget                [travel time — exact, convex]
+                v_min ≤ v[i] ≤ speed_limit[i]
+                |Δv²[i]| / (2·ds) ≤ a_max               [kinematic accel/decel]
 
-The objective is propulsive work (J), which is proportional to fuel consumption
-when BSFC is assumed approximately constant near the highway cruise operating
-point. This is a valid approximation for Class 8 trucks at 70–110 km/h where
-the engine operates in its efficient zone.
+The time constraint is EXACT (no linearization), convex in v, and always
+well-defined because v ≥ v_min > 0. IPOPT's barrier keeps v strictly above
+v_min throughout, so ds/v_mid is finite every iteration — no NaN possible.
 
-Solver: IPOPT (bundled with CasADi). Typical solve time: 5–30 seconds for
-a 100–300 km route at 100m spatial steps.
+The propulsive-work objective is a valid fuel proxy for Class 8 trucks at
+highway cruise, where BSFC variation is <15% across the operating window.
 """
 
 from __future__ import annotations
@@ -67,9 +66,9 @@ def optimize_full_route(
         vehicle: VehicleProfile with mass, aero, and performance specs
         spatial_step_m: spatial discretization step in meters
         time_budget_fraction: max allowed travel time as a fraction of baseline
-                              (1.05 = no more than 5% slower than speed limits).
-                              This prevents the optimizer from simply slowing
-                              down everywhere to reduce drag.
+                              (1.02 = arrive no more than 2% later than driving
+                              at speed limits). Prevents the optimizer from
+                              slowing down everywhere just to reduce aero drag.
         verbose: if True, print IPOPT solver output
 
     Returns:
@@ -121,7 +120,7 @@ def optimize_full_route(
 
     print(f"  Solving NLP: {n_steps} steps at {spatial_step_m:.0f}m resolution...", flush=True)
 
-    opt_speeds = _solve_nlp(
+    opt_speeds = _solve_lp(
         n_steps=n_steps,
         ds=ds,
         grades=grades,
@@ -135,7 +134,7 @@ def optimize_full_route(
     return np.interp(world.distance_m, distances, opt_speeds)
 
 
-def _solve_nlp(
+def _solve_lp(
     n_steps: int,
     ds: float,
     grades: np.ndarray,
@@ -145,29 +144,19 @@ def _solve_nlp(
     verbose: bool,
 ) -> np.ndarray:
     """
-    Build and solve the CasADi NLP using the w = v² substitution.
+    Solve the NLP for fuel-optimal speed trajectory.
 
-    Substituting w[i] = v[i]² makes ALL force terms linear in w. The travel
-    time constraint sum(ds/sqrt(w_mid)) <= T is encoded without any sqrt via
-    the epigraph form: t[i]^2 * w_mid >= ds^2, sum(t) <= T. This eliminates
-    the NaN-in-sqrt issue when IPOPT explores w near zero during barrier steps.
+    Uses v (speed, m/s) directly as decision variable. The travel time
+    constraint ds/v_mid is exact and convex. v_min > 0 ensures v_mid > 0
+    always, so no NaN can occur during IPOPT's barrier iterations.
 
     Returns the optimal speed array (m/s) at the n_steps spatial points.
     """
     opti = ca.Opti()
 
-    # Decision variables: w[i] = v[i]² (squared speeds, m²/s²)
-    w = opti.variable(n_steps)
-
-    # Auxiliary variables: engine work per segment (non-negative)
-    p = opti.variable(n_steps - 1)
-
-    # Auxiliary variables: segment travel times (avoids sqrt in time constraint).
-    # The travel time for segment i is t[i] = ds / v_mid = ds / sqrt(w_mid).
-    # Instead of encoding this as sum(ds/sqrt(w_mid)) <= T, we use the
-    # equivalent epigraph form:  t[i]^2 * w_mid >= ds^2  (for t[i] >= 0).
-    # This is a smooth quadratic constraint — no sqrt, no NaN.
-    t = opti.variable(n_steps - 1)
+    # Decision variables
+    v = opti.variable(n_steps)        # speed at each spatial step (m/s)
+    p = opti.variable(n_steps - 1)   # non-negative engine work per segment (J)
 
     # Vehicle constants
     m   = vehicle.mass_kg
@@ -175,83 +164,70 @@ def _solve_nlp(
     A   = vehicle.frontal_area_m2
     Crr = vehicle.rolling_resistance
 
-    seg_speed_limits = (constraints.speed_upper_ms[:-1] + constraints.speed_upper_ms[1:]) / 2.0
-
+    # Build per-segment constraints
+    travel_time = 0.0
     for i in range(1, n_steps):
-        w_mid = (w[i] + w[i - 1]) / 2.0
+        v_mid = (v[i] + v[i - 1]) / 2.0
         g_mid = (grades[i] + grades[i - 1]) / 2.0
 
-        # Forces (all linear in w)
-        f_aero    = 0.5 * RHO_AIR * Cd * A * w_mid
+        # Longitudinal force model
+        f_aero    = 0.5 * RHO_AIR * Cd * A * v_mid ** 2    # quadratic in v
         f_roll    = Crr * m * G
         f_grade   = m * G * g_mid
-        f_inertia = m * (w[i] - w[i - 1]) / (2.0 * ds)
+        f_inertia = m * (v[i] ** 2 - v[i - 1] ** 2) / (2.0 * ds)  # quadratic in v
 
         work_i = (f_aero + f_roll + f_grade + f_inertia) * ds
 
-        # p[i-1] = max(work_i, 0)
+        # p[i-1] = max(work_i, 0): LP max reformulation via two linear constraints
         opti.subject_to(p[i - 1] >= work_i)
         opti.subject_to(p[i - 1] >= 0)
 
-        # t[i-1] >= ds / sqrt(w_mid) encoded as t[i-1]^2 * w_mid >= ds^2
-        opti.subject_to(t[i - 1] >= 0)
-        opti.subject_to(t[i - 1] ** 2 * w_mid >= ds ** 2)
+        # Exact travel time: ds / v_mid (convex in v; no sqrt because v is the variable)
+        # v_min > 0 lower bound guarantees v_mid > 0 throughout — no NaN possible.
+        travel_time = travel_time + ds / v_mid
 
-    # Objective: minimize total propulsive work
+    # Objective: minimise total propulsive work (fuel proxy)
     opti.minimize(ca.sum1(p))
 
-    # Travel time budget: sum of segment times <= T_budget
-    opti.subject_to(ca.sum1(t) <= time_budget_s)
+    # Travel time budget: exact constraint, no approximation
+    opti.subject_to(travel_time <= time_budget_s)
 
-    # Speed (squared) bounds
-    w_lower = constraints.speed_lower_ms ** 2
-    w_upper = constraints.speed_upper_ms ** 2
+    # Speed bounds
     for i in range(n_steps):
-        opti.subject_to(w[i] >= w_lower[i])
-        opti.subject_to(w[i] <= w_upper[i])
+        opti.subject_to(v[i] >= constraints.speed_lower_ms[i])
+        opti.subject_to(v[i] <= constraints.speed_upper_ms[i])
 
-    # Acceleration / deceleration: (w[i]-w[i-1])/(2*ds) in [-a_max, a_max]
+    # Kinematic acceleration / deceleration
     for i in range(1, n_steps):
-        dw = (w[i] - w[i - 1]) / (2.0 * ds)
-        opti.subject_to(dw <=  constraints.max_accel_ms2)
-        opti.subject_to(dw >= -constraints.max_decel_ms2)
+        accel = (v[i] ** 2 - v[i - 1] ** 2) / (2.0 * ds)
+        opti.subject_to(accel <=  constraints.max_accel_ms2)
+        opti.subject_to(accel >= -constraints.max_decel_ms2)
 
-    # Warm start
-    opti.set_initial(w, constraints.speed_upper_ms ** 2)
+    # Warm start: speed limits provide a strictly feasible interior point
+    opti.set_initial(v, constraints.speed_upper_ms)
     opti.set_initial(p, np.zeros(n_steps - 1))
-    # Initialise t slightly below the budget boundary so IPOPT starts strictly feasible
-    t_init = (ds / np.maximum(seg_speed_limits, 0.1)) * 0.99
-    opti.set_initial(t, t_init)
 
     solver_opts = {
-        "ipopt.print_level":            5 if verbose else 0,
-        "ipopt.max_iter":               500,
-        "ipopt.tol":                    1e-4,
-        "ipopt.acceptable_tol":         1e-3,
-        "ipopt.acceptable_iter":        10,
-        "ipopt.mu_strategy":            "adaptive",
-        "ipopt.nlp_scaling_method":     "gradient-based",
-        # No hessian_approximation override — use CasADi's exact sparse Hessian.
-        # L-BFGS was causing non-convergence because it can't capture the coupling
-        # between t[i] and w[i] in the epigraph constraints.
-        "print_time":                   1 if verbose else 0,
+        "ipopt.print_level":        5 if verbose else 0,
+        "ipopt.max_iter":           1000,
+        "ipopt.tol":                1e-6,
+        "ipopt.acceptable_tol":     1e-5,
+        "ipopt.acceptable_iter":    5,
+        "ipopt.mu_strategy":        "adaptive",
+        "ipopt.nlp_scaling_method": "gradient-based",
+        "ipopt.bound_push":         1e-4,   # keeps v away from bounds → no NaN
+        "ipopt.bound_frac":         1e-4,
+        "print_time":               1 if verbose else 0,
     }
     opti.solver("ipopt", solver_opts)
 
     try:
         sol = opti.solve()
-        w_opt = sol.value(w)
-        converged = True
+        v_opt = sol.value(v)
+        print("  Converged successfully.", flush=True)
     except RuntimeError as e:
         print(f"  Optimizer warning: {e}", flush=True)
         print("  Using best solution found so far.", flush=True)
-        w_opt = opti.debug.value(w)
-        converged = False
+        v_opt = opti.debug.value(v)
 
-    if converged:
-        print("  Converged successfully.", flush=True)
-
-    # Convert w back to v, clamp to speed bounds
-    speeds = np.sqrt(np.maximum(w_opt, 0.0))
-    speeds = np.clip(speeds, constraints.speed_lower_ms, constraints.speed_upper_ms)
-    return speeds
+    return np.clip(v_opt, constraints.speed_lower_ms, constraints.speed_upper_ms)
