@@ -1,0 +1,63 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply bg-white text-stone-900 antialiased;
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white border border-stone-200 rounded-lg;
+  }
+
+  .btn-primary {
+    @apply bg-forest-700 hover:bg-forest-800 text-white font-medium rounded-md px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-white hover:bg-stone-50 text-stone-700 font-medium rounded-md px-4 py-2 border border-stone-200 transition-colors;
+  }
+
+  .input {
+    @apply w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-forest-700 focus:border-transparent transition;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-stone-700 mb-1;
+  }
+
+  .metric-card {
+    @apply card p-4 flex flex-col gap-1;
+  }
+
+  .metric-value {
+    @apply text-2xl font-semibold text-stone-900;
+  }
+
+  .metric-label {
+    @apply text-xs font-medium text-stone-500 uppercase tracking-wide;
+  }
+
+  .metric-delta-positive {
+    @apply text-forest-700 text-sm font-medium;
+  }
+}
+
+/* Leaflet overrides — ensure map tiles render correctly */
+.leaflet-container {
+  @apply rounded-lg;
+  font-family: "Inter", system-ui, sans-serif;
+}
