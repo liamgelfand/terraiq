@@ -185,7 +185,7 @@ if optimized:
     from visualization.plotter import plot_comparison
     fig_compare = plot_comparison(report, show=False)
     st.subheader("Baseline vs Optimized")
-    st.pyplot(fig_compare, width="stretch")
+    st.pyplot(fig_compare, use_container_width=True)
     plt.close(fig_compare)
     st.divider()
     st.subheader("Baseline Detail")
@@ -257,7 +257,7 @@ ax.set_xlabel("Distance (km)", fontsize=9)
 ax.set_title("Cumulative Fuel Consumed", fontsize=10)
 _style(ax)
 
-st.pyplot(fig, width="stretch")
+st.pyplot(fig, use_container_width=True)
 plt.close(fig)
 
 # ── Route map ─────────────────────────────────────────────────────────────────
