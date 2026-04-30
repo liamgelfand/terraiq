@@ -112,10 +112,12 @@ def optimize_full_route(
             max_decel_ms2=vehicle.max_decel_ms2,
         )
 
-    # Baseline travel time: sum over n_steps-1 SEGMENTS (not n_steps points)
-    # Using midpoint speed limit per segment to match the optimizer's v_mid convention
-    seg_speed_limits = (speed_limits[:-1] + speed_limits[1:]) / 2.0
-    baseline_time_s = float(np.sum(ds / np.maximum(seg_speed_limits, 0.1)))
+    # Baseline travel time using the CAPPED speed limits (min of road limit and
+    # vehicle max speed). The optimizer cannot exceed vehicle max speed regardless
+    # of the road limit, so using raw OSM limits here would set an unreachable
+    # baseline and make the time budget infeasible on routes with limits > vehicle max.
+    capped_seg_speeds = (constraints.speed_upper_ms[:-1] + constraints.speed_upper_ms[1:]) / 2.0
+    baseline_time_s = float(np.sum(ds / np.maximum(capped_seg_speeds, 0.1)))
     time_budget_s = baseline_time_s * time_budget_fraction
 
     print(f"  Solving NLP: {n_steps} steps at {spatial_step_m:.0f}m resolution...", flush=True)
@@ -203,9 +205,23 @@ def _solve_lp(
         opti.subject_to(accel <=  constraints.max_accel_ms2)
         opti.subject_to(accel >= -constraints.max_decel_ms2)
 
-    # Warm start: speed limits provide a strictly feasible interior point
-    opti.set_initial(v, constraints.speed_upper_ms)
-    opti.set_initial(p, np.zeros(n_steps - 1))
+    # Warm start: v at speed limits; p at actual work values at those speeds.
+    # Initialising p=0 violates p[i]>=work_i by ~2-3 MJ per segment for a loaded
+    # truck at highway speeds — a ~1 GJ total violation IPOPT cannot restore from.
+    # Setting p to the exact work at the warm-start speed makes the start fully
+    # feasible for every constraint simultaneously.
+    v_init = constraints.speed_upper_ms.copy()
+    p_init = np.empty(n_steps - 1)
+    for i in range(1, n_steps):
+        v_mid_i = (v_init[i] + v_init[i - 1]) / 2.0
+        g_mid_i = (grades[i] + grades[i - 1]) / 2.0
+        f_a = 0.5 * RHO_AIR * Cd * A * v_mid_i ** 2
+        f_r = Crr * m * G
+        f_g = m * G * g_mid_i
+        f_i = m * (v_init[i] ** 2 - v_init[i - 1] ** 2) / (2.0 * ds)
+        p_init[i - 1] = max((f_a + f_r + f_g + f_i) * ds, 0.0)
+    opti.set_initial(v, v_init)
+    opti.set_initial(p, p_init)
 
     solver_opts = {
         "ipopt.print_level":        5 if verbose else 0,
