@@ -11,19 +11,25 @@ Using v directly (not w = v²):
 
 Formulation
 -----------
-    minimize    Σ p[i]                                   (engine work, J)
+    minimize    Σ bsfc(P_norm[i]) · p[i] / 3.6e6        (fuel mass, grams)
     subject to  p[i] ≥ (F_aero + F_roll + F_grade + F_inertia)·ds  [work constraint]
                 p[i] ≥ 0
                 Σ ds/v_mid[i] ≤ T_budget                [travel time — exact, convex]
                 v_min ≤ v[i] ≤ speed_limit[i]
                 |Δv²[i]| / (2·ds) ≤ a_max               [kinematic accel/decel]
 
-The time constraint is EXACT (no linearization), convex in v, and always
-well-defined because v ≥ v_min > 0. IPOPT's barrier keeps v strictly above
-v_min throughout, so ds/v_mid is finite every iteration — no NaN possible.
+where:
+  p[i]     = propulsive work per segment (J) = max(F_net·ds, 0)
+  P_norm[i] = p[i]·v_mid[i] / (ds · P_max_W)   (normalised engine power 0–1)
+  bsfc(x)  = a0 + a1·x + a2·x²  (g/kWh, quadratic fit of BSFC map at highway RPM)
 
-The propulsive-work objective is a valid fuel proxy for Class 8 trucks at
-highway cruise, where BSFC variation is <15% across the operating window.
+Using BSFC instead of raw work correctly penalises light-load conditions
+(BSFC ≈ 290 g/kWh at 10% load) versus the efficient sweet spot
+(BSFC ≈ 188 g/kWh at 70% load for the Detroit DD15).  The derivative
+d(bsfc·p)/d(p) > 0 for all p ≥ 0, so the constraint p[i] ≥ max(work,0)
+still binds at the optimum — the min-fuel solution equals the min-work
+solution structurally, but the objective landscape better reflects real
+engine efficiency.
 """
 
 from __future__ import annotations
@@ -46,6 +52,44 @@ G = 9.81          # m/s²
 
 # Spatial discretization — 100m steps balance accuracy with solve time
 DEFAULT_SPATIAL_STEP_M = 100.0
+
+
+def _fit_bsfc_polynomial(vehicle: VehicleProfile) -> tuple[float, float, float]:
+    """
+    Fit a quadratic BSFC(P_norm) polynomial for highway operating conditions.
+
+    Extracts the BSFC-vs-load curve at the representative highway RPM
+    (top gear at 25 m/s on flat terrain) and fits a least-squares quadratic.
+
+    Returns:
+        (a0, a1, a2) such that BSFC ≈ a0 + a1·P_norm + a2·P_norm²  [g/kWh]
+        where P_norm = engine_power / max_power  (0–1)
+    """
+    import math as _math
+
+    bsfc_map = vehicle.get_bsfc_map()
+
+    # Representative highway operating point: top gear at 25 m/s, flat road
+    v_rep = 25.0  # m/s (~90 km/h)
+    gear_idx = vehicle.get_gear(v_rep, 0.0)
+    gear_ratio = vehicle.gear_ratios[gear_idx]
+    rpm_rep = (
+        v_rep / vehicle.wheel_radius_m
+        * gear_ratio
+        * vehicle.final_drive_ratio
+        * 60.0
+        / (2.0 * _math.pi)
+    )
+    rpm_rep = float(np.clip(rpm_rep, bsfc_map.rpm_points[0], bsfc_map.rpm_points[-1]))
+
+    # Sample BSFC at this RPM across the full load range
+    loads = bsfc_map.load_points
+    bsfc_vals = bsfc_map.lookup_array(np.full_like(loads, rpm_rep), loads)
+
+    # Least-squares quadratic fit: bsfc ≈ a0 + a1*load + a2*load²
+    # np.polyfit returns highest-degree coeff first: [a2, a1, a0]
+    a2, a1, a0 = np.polyfit(loads, bsfc_vals, deg=2)
+    return float(a0), float(a1), float(a2)
 
 
 def optimize_full_route(
@@ -120,6 +164,9 @@ def optimize_full_route(
     baseline_time_s = float(np.sum(ds / np.maximum(capped_seg_speeds, 0.1)))
     time_budget_s = baseline_time_s * time_budget_fraction
 
+    # Fit BSFC polynomial once per call (fast — pure numpy)
+    bsfc_poly = _fit_bsfc_polynomial(vehicle)
+
     print(f"  Solving NLP: {n_steps} steps at {spatial_step_m:.0f}m resolution...", flush=True)
 
     opt_speeds = _solve_lp(
@@ -129,6 +176,7 @@ def optimize_full_route(
         constraints=constraints,
         vehicle=vehicle,
         time_budget_s=time_budget_s,
+        bsfc_poly=bsfc_poly,
         verbose=verbose,
     )
 
@@ -143,6 +191,7 @@ def _solve_lp(
     constraints,
     vehicle: VehicleProfile,
     time_budget_s: float,
+    bsfc_poly: tuple[float, float, float],
     verbose: bool,
 ) -> np.ndarray:
     """
@@ -151,6 +200,9 @@ def _solve_lp(
     Uses v (speed, m/s) directly as decision variable. The travel time
     constraint ds/v_mid is exact and convex. v_min > 0 ensures v_mid > 0
     always, so no NaN can occur during IPOPT's barrier iterations.
+
+    The objective minimises total fuel mass (grams), using a quadratic BSFC
+    polynomial to correctly penalise light-load (low-efficiency) operation.
 
     Returns the optimal speed array (m/s) at the n_steps spatial points.
     """
@@ -161,13 +213,19 @@ def _solve_lp(
     p = opti.variable(n_steps - 1)   # non-negative engine work per segment (J)
 
     # Vehicle constants
-    m   = vehicle.mass_kg
-    Cd  = vehicle.drag_coefficient
-    A   = vehicle.frontal_area_m2
-    Crr = vehicle.rolling_resistance
+    m       = vehicle.mass_kg
+    Cd      = vehicle.drag_coefficient
+    A       = vehicle.frontal_area_m2
+    Crr     = vehicle.rolling_resistance
+    P_max_W = vehicle.max_power_kw * 1000.0   # peak engine power (W)
 
-    # Build per-segment constraints
+    # BSFC polynomial coefficients: bsfc [g/kWh] = a0 + a1*P_norm + a2*P_norm^2
+    # P_norm = p[i]*v_mid / (ds * P_max_W)  — normalised engine power (0–1)
+    a0, a1, a2 = bsfc_poly
+
+    # Build per-segment constraints and fuel objective
     travel_time = 0.0
+    total_fuel_g = 0.0
     for i in range(1, n_steps):
         v_mid = (v[i] + v[i - 1]) / 2.0
         g_mid = (grades[i] + grades[i - 1]) / 2.0
@@ -185,11 +243,17 @@ def _solve_lp(
         opti.subject_to(p[i - 1] >= 0)
 
         # Exact travel time: ds / v_mid (convex in v; no sqrt because v is the variable)
-        # v_min > 0 lower bound guarantees v_mid > 0 throughout — no NaN possible.
         travel_time = travel_time + ds / v_mid
 
-    # Objective: minimise total propulsive work (fuel proxy)
-    opti.minimize(ca.sum1(p))
+        # BSFC-weighted fuel mass for this segment (grams)
+        # P_norm = propulsive power / max_power = (p[i-1]/ds * v_mid) / P_max_W
+        P_norm_i = p[i - 1] * v_mid / (ds * P_max_W)
+        bsfc_i   = a0 + a1 * P_norm_i + a2 * P_norm_i ** 2   # g/kWh
+        # fuel [g] = bsfc [g/kWh] * work [J] / (1000 W/kW * 3600 s/h)
+        total_fuel_g = total_fuel_g + bsfc_i * p[i - 1] / 3.6e6
+
+    # Objective: minimise total fuel consumed (grams)
+    opti.minimize(total_fuel_g)
 
     # Travel time budget: exact constraint, no approximation
     opti.subject_to(travel_time <= time_budget_s)
