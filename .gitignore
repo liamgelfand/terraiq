@@ -23,7 +23,9 @@ build/
 Thumbs.db
 
 # IDE
-.vscode/
+.vscode/``
 .idea/
 
 cache/
+data/route_cache/
+batch_outputs/

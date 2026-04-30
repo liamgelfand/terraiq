@@ -1,20 +1,27 @@
 """
 Fetches a real-world route between two coordinates using OSMnx, then overlays
-elevation data from the Open-Topo-Data API to produce a grade profile.
+elevation data from the Open-Meteo elevation API to produce a grade profile.
 
-The output is a list of RoutePoint dataclasses that feed directly into WorldModel.
+Route data is cached to disk in data/route_cache/ so subsequent runs skip all
+network requests. Delete the cache file for a route to force a fresh fetch.
 """
 
+import hashlib
 import math
+import pickle
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import osmnx as ox
 import requests
 
-OPEN_TOPO_URL = "https://api.open-elevation.com/api/v1/lookup"
-OPEN_TOPO_BATCH_SIZE = 100  # max points per request
+# Open-Meteo elevation: free, no API key, accepts up to 100 coords per request
+ELEVATION_URL = "https://api.open-meteo.com/v1/elevation"
+ELEVATION_BATCH_SIZE = 100
+
+CACHE_DIR = Path(__file__).parent / "route_cache"
 
 
 @dataclass
@@ -36,6 +43,9 @@ def fetch_route(
     """
     Pull the shortest road-network path between origin and destination.
 
+    Results are cached to disk in data/route_cache/. On subsequent calls with
+    the same arguments the cache is loaded instantly, skipping all API calls.
+
     Args:
         origin: (lat, lon) of start point
         destination: (lat, lon) of end point
@@ -45,6 +55,33 @@ def fetch_route(
     Returns:
         List of RoutePoint objects with distance, elevation, grade, speed limit.
     """
+    cache_key = hashlib.md5(
+        f"{origin}{destination}{network_type}{default_speed_limit_kmh}".encode()
+    ).hexdigest()[:12]
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / f"{cache_key}.pkl"
+
+    if cache_path.exists():
+        print(f"Loading route from cache ({cache_path.name})...", flush=True)
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+
+    route_points = _fetch_route_from_network(origin, destination, network_type, default_speed_limit_kmh)
+
+    with open(cache_path, "wb") as f:
+        pickle.dump(route_points, f)
+    print(f"Route cached to {cache_path.name}", flush=True)
+
+    return route_points
+
+
+def _fetch_route_from_network(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    network_type: str,
+    default_speed_limit_kmh: float,
+) -> list[RoutePoint]:
+    """Fetch route from OSMnx + elevation API (no caching)."""
     print(f"Fetching road network around route...", flush=True)
     padding_deg = 0.05  # ~5 km buffer around the bounding box
     min_lat = min(origin[0], destination[0]) - padding_deg
@@ -52,14 +89,11 @@ def fetch_route(
     min_lon = min(origin[1], destination[1]) - padding_deg
     max_lon = max(origin[1], destination[1]) + padding_deg
 
-    # Filter to major roads only — dramatically reduces download size for long routes.
-    # Residential/service roads are irrelevant for freight routing.
     highway_filter = (
         '["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link'
         '|secondary|secondary_link"]'
     )
 
-    # OSMnx 2.x bbox format: (west, south, east, north) = (min_lon, min_lat, max_lon, max_lat)
     graph = ox.graph_from_bbox(
         (min_lon, min_lat, max_lon, max_lat),
         custom_filter=highway_filter,
@@ -78,9 +112,7 @@ def fetch_route(
 
     coords = _extract_coords(graph, path_nodes)
     distances = _cumulative_distances(coords)
-    speed_limits = _extract_speed_limits(
-        graph, path_nodes, default_speed_limit_kmh
-    )
+    speed_limits = _extract_speed_limits(graph, path_nodes, default_speed_limit_kmh)
 
     print(f"Route has {len(coords)} points, total distance: {distances[-1]/1000:.1f} km", flush=True)
     print("Fetching elevation data...", flush=True)
@@ -89,19 +121,17 @@ def fetch_route(
     grades = _compute_grades(distances, elevations)
 
     route_points = []
-    for i, (coord, dist, elev, grade, speed_ms) in enumerate(
-        zip(coords, distances, elevations, grades, speed_limits)
+    for coord, dist, elev, grade, speed_ms in zip(
+        coords, distances, elevations, grades, speed_limits
     ):
-        route_points.append(
-            RoutePoint(
-                distance_m=dist,
-                lat=coord[0],
-                lon=coord[1],
-                elevation_m=elev,
-                grade=grade,
-                speed_limit_ms=speed_ms,
-            )
-        )
+        route_points.append(RoutePoint(
+            distance_m=dist,
+            lat=coord[0],
+            lon=coord[1],
+            elevation_m=elev,
+            grade=grade,
+            speed_limit_ms=speed_ms,
+        ))
 
     return route_points
 
@@ -149,26 +179,29 @@ def _cumulative_distances(coords: list[tuple[float, float]]) -> list[float]:
 
 def _fetch_elevations(coords: list[tuple[float, float]]) -> list[float]:
     """
-    Fetch elevations from Open-Elevation API in batches.
-    Falls back to 0.0 on any request failure.
+    Fetch elevations from Open-Meteo elevation API in batches.
+
+    Open-Meteo is free, requires no API key, and accepts up to 100 lat/lon
+    pairs per request as comma-separated query parameters.
+    Falls back to 0.0 m on any request failure (with a warning).
     """
     elevations = []
-    for batch_start in range(0, len(coords), OPEN_TOPO_BATCH_SIZE):
-        batch = coords[batch_start : batch_start + OPEN_TOPO_BATCH_SIZE]
-        locations = [{"latitude": lat, "longitude": lon} for lat, lon in batch]
+    for batch_start in range(0, len(coords), ELEVATION_BATCH_SIZE):
+        batch = coords[batch_start : batch_start + ELEVATION_BATCH_SIZE]
+        lats = ",".join(f"{lat:.6f}" for lat, _ in batch)
+        lons = ",".join(f"{lon:.6f}" for _, lon in batch)
         try:
-            response = requests.post(
-                OPEN_TOPO_URL,
-                json={"locations": locations},
+            response = requests.get(
+                ELEVATION_URL,
+                params={"latitude": lats, "longitude": lons},
                 timeout=30,
             )
             response.raise_for_status()
-            results = response.json()["results"]
-            elevations.extend(r["elevation"] for r in results)
+            elevations.extend(response.json()["elevation"])
         except Exception as e:
-            print(f"  Elevation API error for batch {batch_start}: {e}. Using 0m.")
+            print(f"  Elevation API error for batch {batch_start}: {e}. Using 0m.", flush=True)
             elevations.extend([0.0] * len(batch))
-        time.sleep(0.1)  # be polite to the API
+        time.sleep(0.05)
 
     return elevations
 
