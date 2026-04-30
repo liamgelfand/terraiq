@@ -8,17 +8,22 @@ per-segment breakdowns.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from simulation.runner import SimulationResult
+
+# US average retail diesel — used as the default cost basis.
+# 1 US gallon = 3.78541 L; $3.90/gal ≈ $1.03/L (EIA, early 2026)
+DIESEL_PRICE_PER_LITER_USD: float = 1.03
 
 
 @dataclass
 class EvaluationReport:
     baseline: SimulationResult
     optimized: SimulationResult
+    diesel_price_per_liter: float = DIESEL_PRICE_PER_LITER_USD
 
     @property
     def fuel_saved_liters(self) -> float:
@@ -32,7 +37,12 @@ class EvaluationReport:
 
     @property
     def co2_saved_kg(self) -> float:
+        # Diesel combustion: ~2.68 kg CO₂ per litre (IPCC/EIA)
         return self.fuel_saved_liters * 2.68
+
+    @property
+    def cost_saved_usd(self) -> float:
+        return self.fuel_saved_liters * self.diesel_price_per_liter
 
     def print_report(self):
         print("\n" + "="*60)
@@ -49,6 +59,8 @@ class EvaluationReport:
         print("-"*60)
         print(f"  Fuel saved:      {self.fuel_saved_liters:.2f} L  "
               f"({self.fuel_saved_pct:.1f}%)")
-        print(f"  CO2 saved:       {self.co2_saved_kg:.1f} kg")
+        print(f"  Cost saved:      ${self.cost_saved_usd:.2f}  "
+              f"(@ ${self.diesel_price_per_liter:.2f}/L)")
+        print(f"  CO₂ saved:       {self.co2_saved_kg:.1f} kg")
         print("="*60)
         print()

@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 
 from simulation.runner import SimulationRunner
-from simulation.evaluator import EvaluationReport
+from simulation.evaluator import EvaluationReport, DIESEL_PRICE_PER_LITER_USD
 from visualization.plotter import plot_comparison
 from data.vehicle_profiles.freightliner_2022 import Freightliner2022
 
@@ -118,12 +118,17 @@ def run_batch():
                 "optimized_L":    f"{optimized.total_fuel_liters:.2f}",
                 "saved_L":        f"{report.fuel_saved_liters:.2f}",
                 "saved_pct":      f"{report.fuel_saved_pct:.1f}",
+                "cost_saved_usd": f"{report.cost_saved_usd:.2f}",
                 "co2_saved_kg":   f"{report.co2_saved_kg:.1f}",
                 "status":         "OK",
             })
 
             elapsed = time.time() - t_start
-            print(f"  ✓ Done in {elapsed:.0f}s — saved {report.fuel_saved_liters:.2f} L ({report.fuel_saved_pct:.1f}%)", flush=True)
+            print(
+                f"  ✓ Done in {elapsed:.0f}s — saved {report.fuel_saved_liters:.2f} L "
+                f"({report.fuel_saved_pct:.1f}%) / ${report.cost_saved_usd:.2f}",
+                flush=True,
+            )
 
         except Exception as e:
             print(f"  ✗ FAILED: {e}", flush=True)
@@ -133,7 +138,8 @@ def run_batch():
                 "status":    f"FAILED: {e}",
                 "distance_km": "-", "elev_gain_m": "-",
                 "baseline_L": "-", "optimized_L": "-",
-                "saved_L": "-", "saved_pct": "-", "co2_saved_kg": "-",
+                "saved_L": "-", "saved_pct": "-",
+                "cost_saved_usd": "-", "co2_saved_kg": "-",
             })
 
     _print_summary_table(results)
@@ -141,11 +147,11 @@ def run_batch():
 
 
 def _print_summary_table(results: list[dict]):
-    print("\n\n" + "="*90)
+    print("\n\n" + "="*100)
     print("  BATCH RESULTS SUMMARY")
-    print("="*90)
-    print(f"  {'Route':<35} {'Terrain':<22} {'km':>6} {'Base':>7} {'Opt':>7} {'Saved':>7} {'%':>6}")
-    print("-"*90)
+    print("="*100)
+    print(f"  {'Route':<35} {'Terrain':<22} {'km':>6} {'Base':>7} {'Opt':>7} {'Saved':>7} {'%':>6} {'$Saved':>8}")
+    print("-"*100)
     for r in results:
         if r["status"] != "OK":
             print(f"  {r['route']:<35} {r['terrain']:<22}  FAILED")
@@ -156,24 +162,28 @@ def _print_summary_table(results: list[dict]):
             f"{r['baseline_L']:>6}L "
             f"{r['optimized_L']:>6}L "
             f"{r['saved_L']:>6}L "
-            f"{r['saved_pct']:>5}%"
+            f"{r['saved_pct']:>5}% "
+            f"${r['cost_saved_usd']:>6}"
         )
 
     ok = [r for r in results if r["status"] == "OK"]
     if ok:
         avg_pct = sum(float(r["saved_pct"]) for r in ok) / len(ok)
-        total_saved = sum(float(r["saved_L"]) for r in ok)
-        print("-"*90)
-        print(f"  {'Average savings:':<58} {avg_pct:>5.1f}%")
-        print(f"  {'Total fuel saved across all routes:':<58} {total_saved:>5.2f} L")
-    print("="*90 + "\n")
+        total_saved_l = sum(float(r["saved_L"]) for r in ok)
+        total_saved_usd = sum(float(r["cost_saved_usd"]) for r in ok)
+        print("-"*100)
+        print(f"  {'Average savings:':<63} {avg_pct:>5.1f}%")
+        print(f"  {'Total fuel saved across all routes:':<63} {total_saved_l:>5.2f} L")
+        print(f"  {'Total cost saved across all routes:':<63} ${total_saved_usd:>6.2f}")
+    print("="*100 + "\n")
 
 
 def _save_csv(results: list[dict]):
     csv_path = OUTPUT_DIR / "batch_results.csv"
     fieldnames = [
         "route", "terrain", "distance_km", "elev_gain_m",
-        "baseline_L", "optimized_L", "saved_L", "saved_pct", "co2_saved_kg", "status",
+        "baseline_L", "optimized_L", "saved_L", "saved_pct",
+        "cost_saved_usd", "co2_saved_kg", "status",
     ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

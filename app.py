@@ -95,6 +95,15 @@ with st.sidebar:
     use_fixed = st.checkbox("Fixed speed (ignore limits)", disabled=(mode != "Baseline only"))
     fixed_kmh = st.slider("Speed (km/h)", 50, 120, 90, 5, disabled=not use_fixed)
 
+    st.divider()
+    st.header("Economics")
+    diesel_price_gal = st.number_input(
+        "Diesel price ($/gallon)",
+        min_value=0.50, max_value=10.0, value=3.90, step=0.05, format="%.2f",
+        help="Used to calculate cost savings. Default is US avg retail (EIA, 2026).",
+    )
+    diesel_price_liter = diesel_price_gal / 3.78541
+
     run = st.button("Run Simulation", type="primary", use_container_width=True)
 
 # ── Idle state ────────────────────────────────────────────────────────────────
@@ -151,14 +160,15 @@ st.success(f"Done in {baseline.elapsed_seconds + (optimized.elapsed_seconds if o
 result = baseline
 if optimized:
     from simulation.evaluator import EvaluationReport
-    report = EvaluationReport(baseline=baseline, optimized=optimized)
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    report = EvaluationReport(baseline=baseline, optimized=optimized, diesel_price_per_liter=diesel_price_liter)
+    m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     m1.metric("Distance", f"{baseline.total_distance_km:.1f} km")
     m2.metric("Baseline Fuel", f"{baseline.total_fuel_liters:.1f} L")
     m3.metric("Optimized Fuel", f"{optimized.total_fuel_liters:.1f} L")
     m4.metric("Fuel Saved", f"{report.fuel_saved_liters:.1f} L", delta=f"-{report.fuel_saved_pct:.1f}%")
-    m5.metric("Elev. Gain", f"+{baseline.elevation_gain_m:.0f} m")
+    m5.metric("Cost Saved", f"${report.cost_saved_usd:.2f}", delta=f"-{report.fuel_saved_pct:.1f}%")
     m6.metric("CO₂ Saved", f"{report.co2_saved_kg:.1f} kg")
+    m7.metric("Elev. Gain", f"+{baseline.elevation_gain_m:.0f} m")
 else:
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Distance", f"{result.total_distance_km:.1f} km")
@@ -175,7 +185,7 @@ if optimized:
     from visualization.plotter import plot_comparison
     fig_compare = plot_comparison(report, show=False)
     st.subheader("Baseline vs Optimized")
-    st.pyplot(fig_compare, use_container_width=True)
+    st.pyplot(fig_compare, width="stretch")
     plt.close(fig_compare)
     st.divider()
     st.subheader("Baseline Detail")
@@ -247,7 +257,7 @@ ax.set_xlabel("Distance (km)", fontsize=9)
 ax.set_title("Cumulative Fuel Consumed", fontsize=10)
 _style(ax)
 
-st.pyplot(fig, use_container_width=True)
+st.pyplot(fig, width="stretch")
 plt.close(fig)
 
 # ── Route map ─────────────────────────────────────────────────────────────────
