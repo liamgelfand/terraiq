@@ -68,6 +68,12 @@ def run_simulation(self, job_id: str) -> None:  # noqa: ARG001
         route_name = f"{config['origin']} to {config['destination']}"
 
         vehicle = Freightliner2022()
+
+        # Apply payload weight if provided — overrides default fully-laden mass
+        load_kg = config.get("load_kg")
+        if load_kg is not None:
+            vehicle.mass_kg = vehicle.tare_mass_kg + float(load_kg)
+
         runner = SimulationRunner(vehicle)
 
         baseline = runner.run(

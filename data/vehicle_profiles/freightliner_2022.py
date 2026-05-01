@@ -21,7 +21,9 @@ class Freightliner2022(VehicleProfile):
     name = "2022 Freightliner Cascadia DD15"
     vehicle_type = "truck"
 
-    # Mass and geometry (laden — 34,000 kg GVW)
+    # Mass and geometry
+    # Tare (unladen) ≈ 17,000 kg; GVWR = 34,000 kg; default = fully laden
+    tare_mass_kg = 17_000.0
     mass_kg = 34_000.0
     drag_coefficient = 0.36         # Cascadia aero package
     frontal_area_m2 = 9.0           # Class 8 truck frontal area

@@ -35,7 +35,8 @@ class VehicleProfile(ABC):
     vehicle_type: str   # "truck", "car", "hybrid", "ev"
 
     # --- Mass and geometry ---
-    mass_kg: float              # total laden mass (kg)
+    mass_kg: float              # total laden mass (kg) — tare + payload
+    tare_mass_kg: float         # unladen (empty) vehicle mass (kg)
     drag_coefficient: float     # aerodynamic Cd (dimensionless)
     frontal_area_m2: float      # frontal cross-section area (m²)
     rolling_resistance: float   # Crr (dimensionless)

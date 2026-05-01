@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
 from api.database import create_tables
-from api.routes import health, jobs, vehicles
+from api.routes import api_keys, health, jobs, vehicles
+from api.routes.v1 import optimize as v1_optimize
 
 
 @asynccontextmanager
@@ -35,3 +36,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(jobs.router)
 app.include_router(vehicles.router)
+app.include_router(api_keys.router)
+app.include_router(v1_optimize.router)

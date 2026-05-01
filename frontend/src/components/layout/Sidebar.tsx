@@ -1,18 +1,24 @@
-import { LayoutDashboard, History } from "lucide-react";
+import { LayoutDashboard, History, KeyRound } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 interface NavItem {
   label: string;
   icon: React.ReactNode;
-  active?: boolean;
+  page: string;
+}
+
+interface SidebarProps {
+  page: string;
+  onNavigate: (page: string) => void;
 }
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", icon: <LayoutDashboard size={18} />, active: true },
-  { label: "History", icon: <History size={18} /> },
+  { label: "Dashboard", icon: <LayoutDashboard size={18} />, page: "dashboard" },
+  { label: "API Keys", icon: <KeyRound size={18} />, page: "api-keys" },
+  { label: "History", icon: <History size={18} />, page: "history" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ page, onNavigate }: SidebarProps) {
   return (
     <aside className="w-56 flex-shrink-0 h-screen bg-forest-700 flex flex-col">
       {/* Logo */}
@@ -33,9 +39,10 @@ export function Sidebar() {
         {navItems.map((item) => (
           <button
             key={item.label}
+            onClick={() => onNavigate(item.page)}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-              item.active
+              page === item.page
                 ? "bg-forest-600 text-white"
                 : "text-forest-200 hover:bg-forest-600 hover:text-white"
             )}
