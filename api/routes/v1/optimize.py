@@ -36,6 +36,14 @@ class OptimizeRequest(BaseModel):
         le=2.0,
         description="Allowed travel time as a fraction of baseline (1.05 = 5% longer allowed)",
     )
+    simplified: bool = Field(
+        default=False,
+        description=(
+            "If true, the speed_profile is filtered to only waypoints where the "
+            "recommended speed changes by more than 5 km/h. Reduces response size "
+            "from hundreds of points to ~10–30 actionable advisory zones."
+        ),
+    )
 
 
 class SpeedPoint(BaseModel):
@@ -69,26 +77,43 @@ class OptimizeResponse(BaseModel):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _build_speed_profile(result: dict) -> list[dict]:
+_SIMPLIFY_THRESHOLD_KMH = 5.0  # minimum speed delta to include a waypoint
+
+
+def _build_speed_profile(result: dict, simplified: bool = False) -> list[dict]:
     lats = result.get("lat", [])
     lons = result.get("lon", [])
     distances = result.get("distances_m", [])
     speeds = result.get("speed_profile_ms", [])
     elevations = result.get("elevations_m", [])
 
-    points = []
+    all_points = []
     for i in range(len(lats)):
-        points.append({
+        all_points.append({
             "lat": round(lats[i], 6),
             "lon": round(lons[i], 6),
             "distance_km": round(distances[i] / 1000, 3) if i < len(distances) else 0,
             "recommended_speed_kmh": round(speeds[i] * 3.6, 1) if i < len(speeds) else 0,
             "elevation_m": round(elevations[i], 1) if i < len(elevations) else 0,
         })
-    return points
+
+    if not simplified or len(all_points) < 3:
+        return all_points
+
+    # Keep first, last, and any point where speed changes by more than the threshold
+    kept = [all_points[0]]
+    for i in range(1, len(all_points) - 1):
+        delta = abs(
+            all_points[i]["recommended_speed_kmh"]
+            - kept[-1]["recommended_speed_kmh"]
+        )
+        if delta >= _SIMPLIFY_THRESHOLD_KMH:
+            kept.append(all_points[i])
+    kept.append(all_points[-1])
+    return kept
 
 
-def _format_response(job: Job) -> OptimizeResponse:
+def _format_response(job: Job, simplified: bool = False) -> OptimizeResponse:
     base = OptimizeResponse(
         job_id=job.id,
         status=job.status,
@@ -109,7 +134,7 @@ def _format_response(job: Job) -> OptimizeResponse:
             fuel_saved_pct=round(savings.get("fuel_saved_pct", 0), 2),
             cost_saved_usd=round(savings.get("cost_saved_usd", 0), 2),
             co2_saved_kg=round(savings.get("co2_saved_kg", 0), 2),
-            speed_profile=_build_speed_profile(r["optimized"]),
+            speed_profile=_build_speed_profile(r["optimized"], simplified=simplified),
         )
 
     return base
@@ -134,6 +159,7 @@ async def submit_optimization(
         "vehicle_id": "freightliner_2022",
         "time_budget_fraction": body.time_budget_fraction,
         "load_kg": body.vehicle.load_kg,
+        "simplified": body.simplified,
     }
 
     job = Job(
@@ -148,7 +174,7 @@ async def submit_optimization(
     from api.workers.tasks import run_simulation  # noqa: PLC0415
     run_simulation.delay(job.id)
 
-    return _format_response(job)
+    return _format_response(job, simplified=body.simplified)
 
 
 @router.get("/{job_id}", response_model=OptimizeResponse)
@@ -161,4 +187,5 @@ async def get_optimization(
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _format_response(job)
+    simplified = bool(job.config.get("simplified", False))
+    return _format_response(job, simplified=simplified)
