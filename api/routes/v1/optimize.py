@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_db, require_api_key
 from api.models.job import Job
+from api.ratelimit import check_rate_limit
 
 router = APIRouter(prefix="/v1/optimize", tags=["v1"])
 
@@ -146,13 +147,16 @@ def _format_response(job: Job, simplified: bool = False) -> OptimizeResponse:
 async def submit_optimization(
     body: OptimizeRequest,
     db: AsyncSession = Depends(get_db),
-    _api_key=Depends(require_api_key),
+    api_key=Depends(require_api_key),
 ) -> Any:
     """
     Submit a route optimization job.
     Returns immediately with a job_id and poll_url.
     Poll GET /v1/optimize/{job_id} until status is `completed`.
+    Rate limited to 60 requests / 60s per API key.
     """
+    await check_rate_limit(api_key.id)
+
     config: dict = {
         "origin": body.origin,
         "destination": body.destination,
