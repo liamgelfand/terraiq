@@ -35,6 +35,7 @@ export interface JobConfig {
   origin: string;
   destination: string;
   vehicle_id: string;
+  job_type?: string;
   time_budget_fraction: number;
 }
 
@@ -69,6 +70,10 @@ export interface JobResult {
   baseline: SimulationResult;
   optimized: SimulationResult;
   savings: Savings;
+  // sweep result fields (present when job_type === "sweep")
+  curve?: SweepPoint[];
+  baseline_fuel_L?: number;
+  distance_km?: number;
 }
 
 export type JobStatus = "pending" | "running" | "completed" | "failed";

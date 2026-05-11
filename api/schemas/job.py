@@ -10,6 +10,7 @@ class JobConfig(BaseModel):
     origin: str = Field(..., description="Origin place name, e.g. 'Denver, CO'")
     destination: str = Field(..., description="Destination place name")
     vehicle_id: str = Field(default="freightliner_2022")
+    job_type: str = Field(default="optimize", description="'optimize' or 'sweep'")
     time_budget_fraction: float = Field(
         default=1.05,
         ge=1.0,

@@ -30,9 +30,12 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
 
-    from api.workers.tasks import run_simulation  # noqa: PLC0415
+    from api.workers.tasks import run_simulation, run_sweep  # noqa: PLC0415
 
-    run_simulation.delay(job.id)
+    if body.config.job_type == "sweep":
+        run_sweep.delay(job.id)
+    else:
+        run_simulation.delay(job.id)
     return job
 
 

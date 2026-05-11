@@ -5,6 +5,7 @@ import { type JobConfig } from "../api/client";
 interface RouteFormProps {
   onSubmit: (config: JobConfig) => void;
   isLoading: boolean;
+  sweepMode?: boolean;
 }
 
 const PRESETS = [
@@ -15,7 +16,7 @@ const PRESETS = [
   { label: "Asheville → Charlotte", origin: "Asheville, NC", destination: "Charlotte, NC" },
 ];
 
-export function RouteForm({ onSubmit, isLoading }: RouteFormProps) {
+export function RouteForm({ onSubmit, isLoading, sweepMode = false }: RouteFormProps) {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [timeBudget, setTimeBudget] = useState(1.05);
@@ -90,25 +91,27 @@ export function RouteForm({ onSubmit, isLoading }: RouteFormProps) {
         </div>
       </div>
 
-      {/* Time budget */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <label className="label mb-0">Time Budget</label>
-          <span className="text-sm font-medium text-forest-700">+{((timeBudget - 1) * 100).toFixed(0)}%</span>
+      {/* Time budget — hidden in sweep mode (sweep runs all budgets) */}
+      {!sweepMode && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="label mb-0">Time Budget</label>
+            <span className="text-sm font-medium text-forest-700">+{((timeBudget - 1) * 100).toFixed(0)}%</span>
+          </div>
+          <input
+            type="range"
+            min="1.0"
+            max="1.30"
+            step="0.01"
+            value={timeBudget}
+            onChange={(e) => setTimeBudget(parseFloat(e.target.value))}
+            className="w-full accent-forest-700"
+          />
+          <p className="text-xs text-stone-400 mt-1">
+            Max allowed travel time vs. baseline drive
+          </p>
         </div>
-        <input
-          type="range"
-          min="1.0"
-          max="1.30"
-          step="0.01"
-          value={timeBudget}
-          onChange={(e) => setTimeBudget(parseFloat(e.target.value))}
-          className="w-full accent-forest-700"
-        />
-        <p className="text-xs text-stone-400 mt-1">
-          Max allowed travel time vs. baseline drive
-        </p>
-      </div>
+      )}
 
       <button
         type="submit"
@@ -118,12 +121,12 @@ export function RouteForm({ onSubmit, isLoading }: RouteFormProps) {
         {isLoading ? (
           <>
             <Loader2 size={16} className="animate-spin" />
-            Running simulation…
+            {sweepMode ? "Running sweep…" : "Running simulation…"}
           </>
         ) : (
           <>
             <Play size={16} />
-            Run Simulation
+            {sweepMode ? "Run Sweep" : "Run Simulation"}
           </>
         )}
       </button>

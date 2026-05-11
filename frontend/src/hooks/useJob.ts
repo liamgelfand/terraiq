@@ -23,3 +23,15 @@ export function useJob(jobId: string | null) {
     },
   });
 }
+
+export function useSubmitSweep() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (config: Pick<JobConfig, "origin" | "destination" | "vehicle_id">) =>
+      submitJob({ ...config, job_type: "sweep", time_budget_fraction: 1.0 }),
+    onSuccess: (job) => {
+      queryClient.setQueryData(["job", job.id], job);
+    },
+  });
+}
