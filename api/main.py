@@ -3,19 +3,26 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
-from api.database import create_tables
 from api.routes import analytics, api_keys, auth, health, jobs, vehicles
 from api.routes.v1 import optimize as v1_optimize
 from api.routes.v1 import sweep as v1_sweep
 
 
+def _run_migrations() -> None:
+    """Apply any pending Alembic migrations at startup."""
+    cfg = AlembicConfig("alembic.ini")
+    alembic_command.upgrade(cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    await create_tables()
+    _run_migrations()
     yield
 
 

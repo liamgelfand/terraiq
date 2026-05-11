@@ -4,7 +4,7 @@
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -ExecutionPolicy Bypass -Command
 
-.PHONY: dev stop up down backend worker frontend install logs help
+.PHONY: dev stop up down backend worker frontend install migrate migration logs help
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help:
@@ -17,6 +17,8 @@ help:
 	@Write-Host "  make worker     Run Celery worker"
 	@Write-Host "  make frontend   Run Vite dev server"
 	@Write-Host "  make install    Install all Python + Node dependencies"
+	@Write-Host "  make migrate    Apply pending DB migrations (alembic upgrade head)"
+	@Write-Host "  make migration msg=<name>  Generate new migration from model changes"
 	@Write-Host "  make logs       Tail Docker logs"
 	@Write-Host ""
 
@@ -53,6 +55,13 @@ worker:
 
 frontend:
 	Set-Location frontend; npm run dev
+
+# ── Database ──────────────────────────────────────────────────────────────────
+migrate:
+	.\venv\Scripts\Activate.ps1; alembic upgrade head
+
+migration:
+	.\venv\Scripts\Activate.ps1; alembic revision --autogenerate -m "$(msg)"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 install:
