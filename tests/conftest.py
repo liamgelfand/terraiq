@@ -3,11 +3,17 @@ Shared test fixtures.
 
 Uses an in-memory SQLite database so tests never touch the real PostgreSQL
 instance and can run in CI without any external services.
+
+External services patched out:
+  - Database  → SQLite (aiosqlite)
+  - Redis     → fakeredis (rate limiter + any other Redis usage)
+  - Celery    → stubs (tasks never dispatch)
 """
 from __future__ import annotations
 
 import pytest
 import pytest_asyncio
+import fakeredis.aioredis as fakeredis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -15,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from api.database import Base
 from api.deps import get_db
 from api.main import app
+import api.ratelimit as ratelimit_module
 
 # ── In-memory SQLite engine ────────────────────────────────────────────────────
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -33,6 +40,15 @@ async def _create_tables():
         await conn.run_sync(Base.metadata.drop_all)
 
 
+@pytest.fixture(autouse=True)
+def _fake_redis_global():
+    """Replace the shared Redis client with in-memory fakeredis for every test."""
+    original = ratelimit_module._redis
+    ratelimit_module._redis = fakeredis.FakeRedis()
+    yield
+    ratelimit_module._redis = original
+
+
 @pytest_asyncio.fixture()
 async def db_session():
     """Yield a fresh database session backed by SQLite."""
@@ -44,7 +60,8 @@ async def db_session():
 async def client(db_session: AsyncSession):
     """
     AsyncClient wired to the FastAPI app with the test DB injected.
-    Celery task dispatch is stubbed out so no workers are needed.
+    Celery task dispatch and Redis are both stubbed so no external
+    services are needed.
     """
     async def _override_get_db():
         yield db_session

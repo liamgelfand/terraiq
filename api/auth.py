@@ -15,7 +15,11 @@ def hash_password(plain: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except ValueError:
+        # bcrypt raises ValueError for invalid salts (e.g. plaintext passed as hash)
+        return False
 
 
 # ─── JWT ──────────────────────────────────────────────────────────────────────
