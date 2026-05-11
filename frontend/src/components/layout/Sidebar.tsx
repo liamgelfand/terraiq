@@ -1,4 +1,5 @@
-import { LayoutDashboard, History, KeyRound } from "lucide-react";
+import { BarChart3, KeyRound, LayoutDashboard, LogOut } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 import { cn } from "../../lib/utils";
 
 interface NavItem {
@@ -14,11 +15,13 @@ interface SidebarProps {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={18} />, page: "dashboard" },
+  { label: "Analytics", icon: <BarChart3 size={18} />, page: "analytics" },
   { label: "API Keys", icon: <KeyRound size={18} />, page: "api-keys" },
-  { label: "History", icon: <History size={18} />, page: "history" },
 ];
 
 export function Sidebar({ page, onNavigate }: SidebarProps) {
+  const { user, logout } = useAuth();
+
   return (
     <aside className="w-56 flex-shrink-0 h-screen bg-forest-700 flex flex-col">
       {/* Logo */}
@@ -53,9 +56,21 @@ export function Sidebar({ page, onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-5 py-4 border-t border-forest-600">
-        <p className="text-forest-400 text-xs">Phase 1 — Simulation</p>
+      {/* User footer */}
+      <div className="px-4 py-4 border-t border-forest-600 space-y-2">
+        {user && (
+          <div className="px-1">
+            <p className="text-white text-xs font-medium truncate">{user.full_name}</p>
+            <p className="text-forest-400 text-xs truncate">{user.fleet_name}</p>
+          </div>
+        )}
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-forest-300 hover:bg-forest-600 hover:text-white transition-colors"
+        >
+          <LogOut size={14} />
+          Sign out
+        </button>
       </div>
     </aside>
   );

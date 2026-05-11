@@ -48,13 +48,12 @@ function CopyButton({ text }: { text: string }) {
 
 function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (key: ApiKeyCreated) => void }) {
   const [name, setName] = useState("");
-  const [fleet, setFleet] = useState("");
   const mutation = useMutation({ mutationFn: createKey });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     mutation.mutate(
-      { name: name.trim(), fleet_name: fleet.trim() || undefined },
+      { name: name.trim() },
       { onSuccess: onCreated }
     );
   }
@@ -66,11 +65,7 @@ function NewKeyModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         <form onSubmit={submit} className="flex flex-col gap-4">
           <div>
             <label className="label">Key name</label>
-            <input className="input" placeholder="e.g. Production fleet" value={name} onChange={e => setName(e.target.value)} required />
-          </div>
-          <div>
-            <label className="label">Fleet name <span className="text-stone-400 font-normal">(optional)</span></label>
-            <input className="input" placeholder="e.g. Acme Logistics" value={fleet} onChange={e => setFleet(e.target.value)} />
+            <input className="input" placeholder="e.g. Production, Staging, Partner A" value={name} onChange={e => setName(e.target.value)} required />
           </div>
           <div className="flex gap-2 justify-end pt-2">
             <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
