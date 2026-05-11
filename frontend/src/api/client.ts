@@ -37,6 +37,7 @@ export interface JobConfig {
   vehicle_id: string;
   job_type?: string;
   time_budget_fraction: number;
+  load_kg?: number;
 }
 
 export interface SimulationResult {
@@ -180,6 +181,14 @@ export async function login(email: string, password: string): Promise<TokenRespo
 export async function getMe(): Promise<CurrentUser> {
   const { data } = await apiClient.get<CurrentUser>("/auth/me");
   return data;
+}
+
+export async function forgotPassword(email: string): Promise<void> {
+  await apiClient.post("/auth/forgot-password", { email });
+}
+
+export async function resetPassword(token: string, new_password: string): Promise<void> {
+  await apiClient.post("/auth/reset-password", { token, new_password });
 }
 
 // ─── Jobs API ─────────────────────────────────────────────────────────────────

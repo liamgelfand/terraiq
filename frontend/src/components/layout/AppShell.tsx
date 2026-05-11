@@ -3,15 +3,26 @@ import { useAuth } from "../../contexts/AuthContext";
 import { Analytics } from "../../pages/Analytics";
 import { ApiKeys } from "../../pages/ApiKeys";
 import { Dashboard } from "../../pages/Dashboard";
+import { ForgotPassword } from "../../pages/ForgotPassword";
 import { History } from "../../pages/History";
 import { Login } from "../../pages/Login";
 import { Register } from "../../pages/Register";
+import { ResetPassword } from "../../pages/ResetPassword";
 import { Sidebar } from "./Sidebar";
+
+type AuthScreen = "login" | "register" | "forgot" ;
+
+function getResetToken(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("reset_token");
+}
 
 export function AppShell() {
   const { user, isLoading } = useAuth();
   const [page, setPage] = useState("dashboard");
-  const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  const [authScreen, setAuthScreen] = useState<AuthScreen>("login");
+
+  const resetToken = getResetToken();
 
   if (isLoading) {
     return (
@@ -21,11 +32,28 @@ export function AppShell() {
     );
   }
 
+  // Password reset link takes priority over everything
+  if (resetToken) {
+    return (
+      <ResetPassword
+        token={resetToken}
+        onGoLogin={() => setAuthScreen("login")}
+      />
+    );
+  }
+
   if (!user) {
-    return authPage === "login" ? (
-      <Login onGoRegister={() => setAuthPage("register")} />
-    ) : (
-      <Register onGoLogin={() => setAuthPage("login")} />
+    if (authScreen === "register") {
+      return <Register onGoLogin={() => setAuthScreen("login")} />;
+    }
+    if (authScreen === "forgot") {
+      return <ForgotPassword onGoLogin={() => setAuthScreen("login")} />;
+    }
+    return (
+      <Login
+        onGoRegister={() => setAuthScreen("register")}
+        onForgotPassword={() => setAuthScreen("forgot")}
+      />
     );
   }
 
@@ -34,8 +62,8 @@ export function AppShell() {
       <Sidebar page={page} onNavigate={setPage} />
       <main className="flex-1 overflow-auto">
         {page === "dashboard" && <Dashboard />}
-        {page === "analytics" && <Analytics />}
         {page === "history" && <History />}
+        {page === "analytics" && <Analytics />}
         {page === "api-keys" && <ApiKeys />}
       </main>
     </div>

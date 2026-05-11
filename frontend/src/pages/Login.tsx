@@ -3,9 +3,10 @@ import { useAuth } from "../contexts/AuthContext";
 
 interface LoginProps {
   onGoRegister: () => void;
+  onForgotPassword: () => void;
 }
 
-export function Login({ onGoRegister }: LoginProps) {
+export function Login({ onGoRegister, onForgotPassword }: LoginProps) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -79,15 +80,24 @@ export function Login({ onGoRegister }: LoginProps) {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-sm text-stone-500">
-            No account?{" "}
+          <div className="mt-4 flex items-center justify-between text-sm text-stone-500">
             <button
-              onClick={onGoRegister}
-              className="text-forest-600 hover:text-forest-700 font-medium"
+              type="button"
+              onClick={onForgotPassword}
+              className="text-stone-400 hover:text-stone-600 text-xs"
             >
-              Create one
+              Forgot password?
             </button>
-          </p>
+            <span>
+              No account?{" "}
+              <button
+                onClick={onGoRegister}
+                className="text-forest-600 hover:text-forest-700 font-medium"
+              >
+                Create one
+              </button>
+            </span>
+          </div>
         </div>
       </div>
     </div>
