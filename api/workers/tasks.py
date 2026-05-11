@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
+from celery.exceptions import MaxRetriesExceededError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from api.config import settings
 from api.workers.celery_app import celery_app
 
+logger = logging.getLogger(__name__)
+
 _sync_engine = create_engine(settings.database_url_sync, pool_pre_ping=True)
 _SyncSession = sessionmaker(_sync_engine)
+
+# Exceptions that are worth retrying automatically (network / transient faults)
+_RETRIABLE = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 def _arr_to_list(arr) -> list:
@@ -42,8 +53,13 @@ def _result_to_dict(result) -> dict:
     }
 
 
-@celery_app.task(bind=True, name="run_simulation")
-def run_simulation(self, job_id: str) -> None:  # noqa: ARG001
+@celery_app.task(
+    bind=True,
+    name="run_simulation",
+    max_retries=3,
+    default_retry_delay=30,  # seconds; doubles each attempt via countdown below
+)
+def run_simulation(self, job_id: str) -> None:
     from api.models.job import Job  # noqa: PLC0415
 
     # Mark job as running
@@ -110,7 +126,28 @@ def run_simulation(self, job_id: str) -> None:  # noqa: ARG001
                 job.updated_at = datetime.now(timezone.utc)
                 session.commit()
 
+    except _RETRIABLE as exc:
+        attempt = self.request.retries
+        countdown = 30 * (2 ** attempt)  # 30s, 60s, 120s
+        logger.warning(
+            "run_simulation job=%s retriable error (attempt %d): %s — retrying in %ds",
+            job_id, attempt + 1, exc, countdown,
+        )
+        try:
+            raise self.retry(exc=exc, countdown=countdown)
+        except MaxRetriesExceededError:
+            pass  # fall through to permanent failure below
+
+        with _SyncSession() as session:
+            job = session.get(Job, job_id)
+            if job:
+                job.status = "failed"
+                job.error_message = f"Failed after {self.max_retries} retries: {exc}"
+                job.updated_at = datetime.now(timezone.utc)
+                session.commit()
+
     except Exception as exc:
+        logger.exception("run_simulation job=%s permanent failure: %s", job_id, exc)
         with _SyncSession() as session:
             job = session.get(Job, job_id)
             if job:
@@ -125,8 +162,13 @@ def run_simulation(self, job_id: str) -> None:  # noqa: ARG001
 _SWEEP_BUDGETS = [1.0, 1.03, 1.05, 1.10, 1.15, 1.25]
 
 
-@celery_app.task(bind=True, name="run_sweep")
-def run_sweep(self, job_id: str) -> None:  # noqa: ARG001
+@celery_app.task(
+    bind=True,
+    name="run_sweep",
+    max_retries=2,
+    default_retry_delay=60,
+)
+def run_sweep(self, job_id: str) -> None:
     """
     Runs the MPC optimizer at several time budgets for the same route,
     producing a cost-vs-time Pareto curve.
@@ -228,7 +270,28 @@ def run_sweep(self, job_id: str) -> None:  # noqa: ARG001
                 job.updated_at = datetime.now(timezone.utc)
                 session.commit()
 
+    except _RETRIABLE as exc:
+        attempt = self.request.retries
+        countdown = 60 * (2 ** attempt)  # 60s, 120s
+        logger.warning(
+            "run_sweep job=%s retriable error (attempt %d): %s — retrying in %ds",
+            job_id, attempt + 1, exc, countdown,
+        )
+        try:
+            raise self.retry(exc=exc, countdown=countdown)
+        except MaxRetriesExceededError:
+            pass
+
+        with _SyncSession() as session:
+            job = session.get(Job, job_id)
+            if job:
+                job.status = "failed"
+                job.error_message = f"Failed after {self.max_retries} retries: {exc}"
+                job.updated_at = datetime.now(timezone.utc)
+                session.commit()
+
     except Exception as exc:
+        logger.exception("run_sweep job=%s permanent failure: %s", job_id, exc)
         with _SyncSession() as session:
             job = session.get(Job, job_id)
             if job:
