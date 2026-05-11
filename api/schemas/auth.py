@@ -26,3 +26,12 @@ class UserResponse(BaseModel):
     full_name: str
     fleet_id: str
     fleet_name: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)

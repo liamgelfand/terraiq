@@ -13,10 +13,11 @@ if config.config_file_name:
 # ── Import every model so Alembic can detect schema changes ──────────────────
 # Adding a new model? Import it here.
 from api.database import Base  # noqa: E402
-import api.models.fleet        # noqa: E402, F401
-import api.models.user         # noqa: E402, F401
-import api.models.api_key      # noqa: E402, F401
-import api.models.job          # noqa: E402, F401
+import api.models.fleet           # noqa: E402, F401
+import api.models.user            # noqa: E402, F401
+import api.models.api_key         # noqa: E402, F401
+import api.models.job             # noqa: E402, F401
+import api.models.password_reset  # noqa: E402, F401
 
 target_metadata = Base.metadata
 
