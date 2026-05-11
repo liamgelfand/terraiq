@@ -9,9 +9,9 @@ import { SweepChart } from "../components/charts/SweepChart";
 
 function JobRow({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
-  const isSweep = job.config.job_type === "sweep";
-  const hasSweepResult = isSweep && job.result?.curve;
-  const hasOptResult = !isSweep && job.status === "completed" && job.result;
+  const isSweep = job.config.job_type === "sweep" || !!(job.result?.curve);
+  const hasSweepResult = isSweep && job.status === "completed" && !!job.result?.curve;
+  const hasOptResult = !isSweep && job.status === "completed" && !!job.result?.savings;
 
   return (
     <div className="border border-stone-200 rounded-xl overflow-hidden bg-white">
