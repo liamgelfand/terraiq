@@ -4,22 +4,32 @@
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -ExecutionPolicy Bypass -Command
 
-.PHONY: dev stop up down backend worker frontend install migrate migration logs help
+.PHONY: dev stop up down backend worker frontend install migrate migration logs \
+        test test-unit test-integration test-be test-fe test-e2e help
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help:
 	@Write-Host ""
-	@Write-Host "  make dev        Start all services (Docker + API + Celery + Frontend)"
-	@Write-Host "  make stop       Stop Docker services"
-	@Write-Host "  make up         docker compose up -d"
-	@Write-Host "  make down       docker compose down"
-	@Write-Host "  make backend    Run FastAPI dev server"
-	@Write-Host "  make worker     Run Celery worker"
-	@Write-Host "  make frontend   Run Vite dev server"
-	@Write-Host "  make install    Install all Python + Node dependencies"
-	@Write-Host "  make migrate    Apply pending DB migrations (alembic upgrade head)"
-	@Write-Host "  make migration msg=<name>  Generate new migration from model changes"
-	@Write-Host "  make logs       Tail Docker logs"
+	@Write-Host "  ── Dev ───────────────────────────────────────────────"
+	@Write-Host "  make dev               Start all services (Docker + API + Celery + Frontend)"
+	@Write-Host "  make stop              Stop Docker services"
+	@Write-Host "  make up                docker compose up -d"
+	@Write-Host "  make down              docker compose down"
+	@Write-Host "  make backend           Run FastAPI dev server"
+	@Write-Host "  make worker            Run Celery worker"
+	@Write-Host "  make frontend          Run Vite dev server"
+	@Write-Host "  make install           Install all Python + Node dependencies"
+	@Write-Host "  make migrate           Apply pending DB migrations"
+	@Write-Host "  make migration msg=X   Generate migration from model changes"
+	@Write-Host "  make logs              Tail Docker logs"
+	@Write-Host ""
+	@Write-Host "  ── Tests ─────────────────────────────────────────────"
+	@Write-Host "  make test              Run all tests (backend + frontend)"
+	@Write-Host "  make test-be           Run all backend tests (unit + integration)"
+	@Write-Host "  make test-unit         Run backend unit tests only"
+	@Write-Host "  make test-integration  Run backend integration tests only"
+	@Write-Host "  make test-fe           Run frontend component tests (Vitest)"
+	@Write-Host "  make test-e2e          Run E2E tests (requires: make dev first)"
 	@Write-Host ""
 
 # ── All-in-one ────────────────────────────────────────────────────────────────
@@ -62,6 +72,31 @@ migrate:
 
 migration:
 	.\venv\Scripts\Activate.ps1; alembic revision --autogenerate -m "$(msg)"
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+
+# All tests — backend (unit + integration) then frontend
+test: test-be test-fe
+
+# All backend tests
+test-be:
+	.\venv\Scripts\Activate.ps1; python -m pytest tests/ -v
+
+# Unit tests only (no DB, no HTTP, no external services)
+test-unit:
+	.\venv\Scripts\Activate.ps1; python -m pytest tests/unit/ -v
+
+# Integration tests only (SQLite + fakeredis + stubbed Celery)
+test-integration:
+	.\venv\Scripts\Activate.ps1; python -m pytest tests/integration/ -v
+
+# Frontend component tests (Vitest + React Testing Library)
+test-fe:
+	Set-Location frontend; npm test
+
+# E2E tests — requires all services running (make dev)
+test-e2e:
+	npx playwright test
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 install:
