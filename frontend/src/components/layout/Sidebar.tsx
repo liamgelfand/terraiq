@@ -1,4 +1,4 @@
-import { BarChart3, KeyRound, LayoutDashboard, LogOut } from "lucide-react";
+import { BarChart3, History, KeyRound, LayoutDashboard, LogOut } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { cn } from "../../lib/utils";
 
@@ -15,6 +15,7 @@ interface SidebarProps {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={18} />, page: "dashboard" },
+  { label: "History", icon: <History size={18} />, page: "history" },
   { label: "Analytics", icon: <BarChart3 size={18} />, page: "analytics" },
   { label: "API Keys", icon: <KeyRound size={18} />, page: "api-keys" },
 ];

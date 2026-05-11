@@ -3,6 +3,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { Analytics } from "../../pages/Analytics";
 import { ApiKeys } from "../../pages/ApiKeys";
 import { Dashboard } from "../../pages/Dashboard";
+import { History } from "../../pages/History";
 import { Login } from "../../pages/Login";
 import { Register } from "../../pages/Register";
 import { Sidebar } from "./Sidebar";
@@ -34,6 +35,7 @@ export function AppShell() {
       <main className="flex-1 overflow-auto">
         {page === "dashboard" && <Dashboard />}
         {page === "analytics" && <Analytics />}
+        {page === "history" && <History />}
         {page === "api-keys" && <ApiKeys />}
       </main>
     </div>
