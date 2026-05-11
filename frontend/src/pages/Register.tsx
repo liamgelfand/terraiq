@@ -5,6 +5,23 @@ interface RegisterProps {
   onGoLogin: () => void;
 }
 
+interface FieldErrors {
+  email?: string;
+  general?: string;
+}
+
+function extractError(err: unknown): FieldErrors {
+  const detail =
+    (err as { response?: { data?: { detail?: string } } })?.response?.data
+      ?.detail ?? "";
+  const status = (err as { response?: { status?: number } })?.response?.status;
+
+  if (status === 409 || detail.toLowerCase().includes("email")) {
+    return { email: "An account with this email already exists." };
+  }
+  return { general: detail || "Registration failed. Please try again." };
+}
+
 export function Register({ onGoLogin }: RegisterProps) {
   const { register } = useAuth();
   const [form, setForm] = useState({
@@ -13,25 +30,25 @@ export function Register({ onGoLogin }: RegisterProps) {
     password: "",
     fleet_name: "",
   });
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
 
   function set(field: keyof typeof form) {
-    return (e: React.ChangeEvent<HTMLInputElement>) =>
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
       setForm((f) => ({ ...f, [field]: e.target.value }));
+      // Clear field-specific error as user types
+      if (field === "email") setErrors((prev) => ({ ...prev, email: undefined }));
+    };
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
+    setErrors({});
     setLoading(true);
     try {
       await register(form.email, form.password, form.full_name, form.fleet_name);
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        "Registration failed. Please try again.";
-      setError(msg);
+      setErrors(extractError(err));
     } finally {
       setLoading(false);
     }
@@ -40,7 +57,6 @@ export function Register({ onGoLogin }: RegisterProps) {
   return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="bg-white border border-stone-200 rounded-xl p-3 shadow-sm mb-4">
             <img src="/logo.png" alt="TerraIQ" className="h-12 w-auto" />
@@ -50,9 +66,9 @@ export function Register({ onGoLogin }: RegisterProps) {
         </div>
 
         <div className="bg-white border border-stone-200 rounded-xl p-6 shadow-sm">
-          {error && (
+          {errors.general && (
             <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-              {error}
+              {errors.general}
             </div>
           )}
 
@@ -89,8 +105,23 @@ export function Register({ onGoLogin }: RegisterProps) {
                 value={form.email}
                 onChange={set("email")}
                 placeholder="you@fleet.com"
-                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
+                className={`w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 focus:border-transparent ${
+                  errors.email
+                    ? "border-red-400 focus:ring-red-400 bg-red-50"
+                    : "border-stone-300 focus:ring-forest-500"
+                }`}
               />
+              {errors.email && (
+                <p className="mt-1 text-xs text-red-600">{errors.email}{" "}
+                  <button
+                    type="button"
+                    onClick={onGoLogin}
+                    className="underline font-medium"
+                  >
+                    Sign in instead?
+                  </button>
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1">
