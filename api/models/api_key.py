@@ -15,6 +15,7 @@ class ApiKey(Base):
     id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid.uuid4())
     )
+    fleet_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     fleet_name: Mapped[str | None] = mapped_column(String, nullable=True)
     key_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)

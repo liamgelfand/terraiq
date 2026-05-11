@@ -26,3 +26,8 @@ alembic
 # Task queue
 celery[redis]
 redis
+
+# Auth
+python-jose[cryptography]
+bcrypt
+pydantic[email]
