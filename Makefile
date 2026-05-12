@@ -38,21 +38,21 @@ help:
 
 # Full Docker Compose stack (all services containerised)
 dev:
-	docker compose up -d; \
-	Write-Host ''; \
-	Write-Host '  All services started.' -ForegroundColor Green; \
-	Write-Host '  Frontend -> http://localhost:5173'; \
+	docker compose up -d
+	Write-Host ''
+	Write-Host '  All services started.' -ForegroundColor Green
+	Write-Host '  Frontend -> http://localhost:5173'
 	Write-Host '  API docs -> http://localhost:8000/docs'
 
 # Docker for Postgres + Redis only; API/Celery/Frontend run locally in separate windows
 dev-local:
-	docker compose up -d postgres redis; \
-	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - FastAPI'; .\venv\Scripts\Activate.ps1; uvicorn api.main:app --reload"; \
-	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - Celery'; .\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info"; \
-	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)\frontend'; $$host.UI.RawUI.WindowTitle='TerraIQ - Frontend'; npm run dev"; \
-	Write-Host ''; \
-	Write-Host '  Services started (3 new windows).' -ForegroundColor Green; \
-	Write-Host '  Frontend -> http://localhost:5173'; \
+	docker compose up -d postgres redis
+	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - FastAPI'; .\venv\Scripts\Activate.ps1; uvicorn api.main:app --reload"
+	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - Celery'; .\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info"
+	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)\frontend'; $$host.UI.RawUI.WindowTitle='TerraIQ - Frontend'; npm run dev"
+	Write-Host ''
+	Write-Host '  Services started (3 new windows).' -ForegroundColor Green
+	Write-Host '  Frontend -> http://localhost:5173'
 	Write-Host '  API docs -> http://localhost:8000/docs'
 
 stop:
