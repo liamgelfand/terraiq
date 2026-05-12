@@ -1,6 +1,6 @@
 PROJECT_BRIEF.md
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 venv/
 __pycache__/
 *.pyc
@@ -11,27 +11,51 @@ __pycache__/
 dist/
 build/
 
-# Jupyter
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ── Type checkers & linters ───────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# Environment
+# ── Environment ───────────────────────────────────────────────────────────────
 .env
 .env.local
+.env.*.local
 
-# OS
+# ── Database ──────────────────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+
+# ── Generated script outputs ──────────────────────────────────────────────────
+*_output.png
+batch_outputs/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 
+# ── Caches ────────────────────────────────────────────────────────────────────
 cache/
 data/route_cache/
-batch_outputs/
 
-# Frontend
+# ── Frontend ──────────────────────────────────────────────────────────────────
 node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.env.local
+
+# ── Playwright ────────────────────────────────────────────────────────────────
+playwright-report/
+test-results/

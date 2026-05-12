@@ -1,57 +1,155 @@
-# TerraIQ — Terrain-Aware Fuel Optimization
+# TerraIQ
 
-A physics-based fuel optimization engine that computes the ideal speed profile for any route — minimizing total fuel consumption using real-time terrain, traffic, and vehicle data.
+**Terrain-Aware Fuel Optimization** — a physics-based route intelligence API that computes the optimal speed profile for any highway route, minimizing fuel consumption using real terrain grades, vehicle dynamics, and Model Predictive Control.
 
-## Setup
+Designed for commercial fleet operators. Delivers 8–15% fuel savings on mountain and rolling-terrain routes.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────┐     ┌──────────────────────────────────────┐
+│   React + Vite UI   │────▶│  FastAPI   (REST + JWT auth)         │
+│   Tailwind / shadcn │     │  ├── /auth/*       User & fleet mgmt │
+└─────────────────────┘     │  ├── /api/*        Internal dashboard│
+                            │  └── /v1/optimize  Public API (keys) │
+                            └──────────┬───────────────────────────┘
+                                       │ Celery task
+                            ┌──────────▼───────────────────────────┐
+                            │  Simulation + MPC Optimizer           │
+                            │  OSMnx road graph · CasADi/IPOPT     │
+                            │  BSFC fuel map · longitudinal physics │
+                            └──────────────────────────────────────┘
+                            ┌────────────┐  ┌────────────────────┐
+                            │ PostgreSQL │  │ Redis (broker +    │
+                            │ (jobs, DB) │  │  rate limiter)     │
+                            └────────────┘  └────────────────────┘
+```
+
+## Quick Start
+
+**Prerequisites:** Python 3.11+, Node 18+, Docker Desktop
 
 ```bash
+# 1. Clone and create virtual environment
 python -m venv venv
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
+venv\Scripts\activate          # Windows
+# source venv/bin/activate     # macOS / Linux
 
-pip install -r requirements.txt
+# 2. Install all dependencies
+make install
+
+# 3. Copy environment config
+cp .env.example .env
+
+# 4. Start all services (Docker + API + Celery + Frontend)
+make dev
 ```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
 
 ## Project Structure
 
 ```
 terraiq/
-├── data/
-│   ├── route_fetcher.py          # Pulls route + elevation from APIs
-│   ├── traffic_fetcher.py        # Pulls live/historical traffic data
-│   └── vehicle_profiles/
-│       ├── base_profile.py       # Abstract base class
-│       ├── freightliner_2022.py  # Class 8 truck profile
-│       └── toyota_camry_2023.py  # Passenger car profile
-├── models/
-│   ├── world_model.py            # Route as structured data object
-│   ├── vehicle_model.py          # Physics engine — fuel from speed profile
-│   └── fuel_map.py               # BSFC map loader and interpolation
-├── optimizer/
-│   ├── baseline.py               # Constant speed / human driving simulation
-│   ├── mpc_optimizer.py          # Core MPC optimization algorithm
-│   └── constraints.py            # Speed limits, comfort, traffic constraints
-├── simulation/
-│   ├── runner.py                 # End-to-end simulation runner
-│   └── evaluator.py              # Comparison metrics, output report
-├── visualization/
-│   └── plotter.py                # Charts: elevation, speed profiles, fuel
-├── notebooks/
-│   └── experiments.ipynb         # Experimentation and iteration
-└── tests/
-    └── test_vehicle_model.py     # Validate physics against NREL Fleet DNA data
+├── api/                    FastAPI application
+│   ├── models/             SQLAlchemy ORM models
+│   ├── routes/             HTTP route handlers
+│   │   └── v1/             Public API (API key auth)
+│   ├── schemas/            Pydantic request/response schemas
+│   └── workers/            Celery tasks
+│
+├── simulation/             End-to-end simulation pipeline
+│   ├── runner.py           Route → fuel result
+│   └── evaluator.py        Baseline vs optimized comparison
+│
+├── optimizer/              MPC optimization core
+│   ├── mpc_optimizer.py    CasADi / IPOPT NLP solver
+│   ├── baseline.py         Human-driving speed profile
+│   └── constraints.py      Speed limits, comfort bounds
+│
+├── models/                 Physics models
+│   ├── vehicle_model.py    Longitudinal dynamics + fuel
+│   ├── world_model.py      Route as structured data
+│   └── fuel_map.py         BSFC map interpolation
+│
+├── data/                   Data fetching and vehicle profiles
+│   ├── route_fetcher.py    OSMnx road graph + elevation
+│   └── vehicle_profiles/   Per-vehicle physics parameters
+│
+├── validation/             Physics validation against NREL data
+├── visualization/          Matplotlib plotting utilities
+├── scripts/                Developer CLI tools (local use)
+│   ├── run_simulation.py   Single-route physics debug run
+│   └── run_batch.py        Multi-route validation suite
+│
+├── migrations/             Alembic DB migrations
+├── tests/                  Test suite
+│   ├── unit/               Pure function tests (no I/O)
+│   └── integration/        HTTP + SQLite + fakeredis
+├── e2e/                    Playwright end-to-end tests
+└── frontend/               React + Vite application
+    └── src/
+        ├── pages/          Dashboard, History, Analytics, etc.
+        ├── components/     Shared UI components
+        ├── api/            API client + TypeScript types
+        ├── contexts/       React context (auth state)
+        └── hooks/          React Query hooks
 ```
 
-## Build Stages
+---
 
-1. **Route Data Pipeline** — pull real routes with elevation and grade profiles
-2. **Vehicle Physics Model** — longitudinal dynamics + BSFC fuel consumption
-3. **Baseline Simulator** — benchmark constant-speed human driving
-4. **MPC Optimizer** — compute fuel-optimal speed trajectory
-5. **Traffic Integration + Multi-Route Testing** — validate at scale
+## Common Commands
 
-## Phase 1 Success Criterion
+```bash
+make dev               # Start all services
+make stop              # Stop Docker
 
-Demonstrate ≥8% fuel reduction on 10 diverse real-world highway routes using a validated Class 8 truck physics model, with results replicable within ±2% across runs.
+make test              # All tests (backend + frontend)
+make test-unit         # Fast unit tests only (~7s)
+make test-integration  # Integration tests (~20s)
+make test-fe           # Frontend component tests
+
+make migrate           # Apply DB migrations
+make migration msg=X   # Generate new migration
+
+make help              # Full command reference
+```
+
+## Testing
+
+```bash
+# Backend (99 tests)
+make test-be
+
+# Frontend (25 tests)
+make test-fe
+
+# E2E — requires make dev running first
+make test-e2e
+```
+
+---
+
+## API Usage
+
+The public API uses API key authentication via the `X-API-Key` header.
+
+```bash
+# Submit an optimization job
+curl -X POST http://localhost:8000/v1/optimize \
+  -H "X-API-Key: tiq_your_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"origin": "Denver, CO", "destination": "Grand Junction, CO"}'
+
+# Poll for result
+curl http://localhost:8000/v1/optimize/{job_id} \
+  -H "X-API-Key: tiq_your_key_here"
+```
+
+Full interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)

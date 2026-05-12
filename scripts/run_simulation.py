@@ -1,15 +1,12 @@
 """
-Run baseline and optimized simulations and compare results.
+Run baseline and optimized simulations for a single route and compare results.
 
-Usage:
-    python -u run_simulation.py
+Useful for local physics validation and debugging without starting the full API stack.
+Plots are saved to the current working directory.
 
-Edit the configuration section below to change the route or vehicle.
-Coordinates are (latitude, longitude).
+Usage (from project root):
+    python scripts/run_simulation.py
 """
-
-import sys
-sys.path.insert(0, ".")
 
 from simulation.runner import SimulationRunner
 from simulation.evaluator import EvaluationReport
@@ -23,7 +20,6 @@ ORIGIN      = (39.30, -120.14)   # Truckee, CA
 DESTINATION = (38.73, -121.38)   # Sacramento, CA
 
 # Optimizer spatial step — smaller = more accurate but slower solver
-# 100m is a good balance for a first run
 SPATIAL_STEP_M = 100.0
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -31,7 +27,6 @@ SPATIAL_STEP_M = 100.0
 if __name__ == "__main__":
     runner = SimulationRunner(vehicle=Freightliner2022())
 
-    # Run baseline — route fetch happens here and is cached
     baseline = runner.run(
         origin=ORIGIN,
         destination=DESTINATION,
@@ -39,7 +34,6 @@ if __name__ == "__main__":
     )
     baseline.print_summary()
 
-    # Run optimizer — reuses cached route, no second network fetch
     optimized = runner.run_optimized(
         origin=ORIGIN,
         destination=DESTINATION,
@@ -48,11 +42,9 @@ if __name__ == "__main__":
     )
     optimized.print_summary()
 
-    # Print comparison
     report = EvaluationReport(baseline=baseline, optimized=optimized)
     report.print_report()
 
-    # Save plots
     plot_baseline(baseline, save_path="baseline_output.png", show=False)
     plot_comparison(report, save_path="comparison_output.png", show=False)
     print("Plots saved: baseline_output.png, comparison_output.png")
