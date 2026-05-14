@@ -8,6 +8,7 @@ export function useSubmitJob() {
     mutationFn: (config: JobConfig) => submitJob(config),
     onSuccess: (job) => {
       queryClient.setQueryData(["job", job.id], job);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
 }
@@ -32,6 +33,7 @@ export function useSubmitSweep() {
       submitJob({ ...config, job_type: "sweep", time_budget_fraction: 1.0 }),
     onSuccess: (job) => {
       queryClient.setQueryData(["job", job.id], job);
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
 }

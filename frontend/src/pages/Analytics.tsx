@@ -35,10 +35,12 @@ export function Analytics() {
     queryFn: fetchAnalytics,
   });
 
-  const { data: jobs = [], isLoading: loadingJobs } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: listJobs,
+  const { data: jobPage, isLoading: loadingJobs } = useQuery({
+    queryKey: ["jobs", "analytics-preview"],
+    queryFn: () => listJobs({ page: 1, page_size: 100 }),
   });
+
+  const jobs = jobPage?.items ?? [];
 
   const { data: keys = [] } = useQuery({
     queryKey: ["api-keys"],

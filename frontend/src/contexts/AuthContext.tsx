@@ -19,6 +19,7 @@ interface AuthContextValue {
     fleetName: string
   ) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -69,8 +70,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const token = localStorage.getItem("tiq_token");
+    if (!token) {
+      setUser(null);
+      return;
+    }
+    try {
+      const me = await getMe();
+      setUser(me);
+    } catch {
+      localStorage.removeItem("tiq_token");
+      setUser(null);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

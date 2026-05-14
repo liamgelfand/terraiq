@@ -22,6 +22,8 @@ export interface CurrentUser {
   full_name: string;
   fleet_id: string;
   fleet_name: string;
+  role: "admin" | "member";
+  onboarding_completed: boolean;
 }
 
 export interface TokenResponse {
@@ -85,6 +87,12 @@ export interface Job {
   config: JobConfig;
   result: JobResult | null;
   error_message: string | null;
+  error_code?: string | null;
+  error_hint?: string | null;
+  corridor_id?: string | null;
+  batch_id?: string | null;
+  simulation_engine_version?: string | null;
+  lineage?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -97,6 +105,58 @@ export interface Vehicle {
   mass_kg: number;
   max_speed_kmh: number;
   description: string;
+}
+
+export interface JobListPage {
+  items: Job[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// ─── Fleet admin ────────────────────────────────────────────────────────────
+
+export interface FleetUsage {
+  jobs_total: number;
+  jobs_completed: number;
+  jobs_failed: number;
+  jobs_this_month: number;
+  api_key_usage_total: number;
+}
+
+export interface AuditEventRow {
+  id: string;
+  actor_user_id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AuditLogPage {
+  items: AuditEventRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface WebhookDeliveryRow {
+  id: string;
+  job_id: string;
+  url: string;
+  event: string;
+  attempt: number;
+  http_status: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface WebhookDeliveryPage {
+  items: WebhookDeliveryRow[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 // ─── API key types ────────────────────────────────────────────────────────────
@@ -191,6 +251,41 @@ export async function resetPassword(token: string, new_password: string): Promis
   await apiClient.post("/auth/reset-password", { token, new_password });
 }
 
+export async function updateProfile(full_name: string): Promise<CurrentUser> {
+  const { data } = await apiClient.patch<CurrentUser>("/auth/me", { full_name });
+  return data;
+}
+
+export async function updateFleetName(fleet_name: string): Promise<CurrentUser> {
+  const { data } = await apiClient.patch<CurrentUser>("/auth/fleet", { fleet_name });
+  return data;
+}
+
+export async function changePassword(current_password: string, new_password: string): Promise<void> {
+  await apiClient.post("/auth/change-password", { current_password, new_password });
+}
+
+export async function updateOnboarding(onboarding_completed: boolean): Promise<CurrentUser> {
+  const { data } = await apiClient.patch<CurrentUser>("/auth/onboarding", { onboarding_completed });
+  return data;
+}
+
+export async function getInviteInfo(token: string): Promise<{ fleet_name: string; email: string }> {
+  const { data } = await apiClient.get<{ fleet_name: string; email: string }>("/auth/invite-info", {
+    params: { token },
+  });
+  return data;
+}
+
+export async function acceptInvite(token: string, full_name: string, new_password: string): Promise<TokenResponse> {
+  const { data } = await apiClient.post<TokenResponse>("/auth/accept-invite", {
+    token,
+    full_name,
+    new_password,
+  });
+  return data;
+}
+
 // ─── Jobs API ─────────────────────────────────────────────────────────────────
 
 export async function submitJob(config: JobConfig): Promise<Job> {
@@ -203,13 +298,54 @@ export async function getJob(jobId: string): Promise<Job> {
   return data;
 }
 
-export async function listJobs(): Promise<Job[]> {
-  const { data } = await apiClient.get<Job[]>("/api/jobs");
+export async function listJobs(params?: {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  q?: string;
+}): Promise<JobListPage> {
+  const { data } = await apiClient.get<JobListPage>("/api/jobs", { params });
   return data;
+}
+
+/** Download fleet job history as CSV (uses current JWT). */
+export async function downloadJobsExport(): Promise<void> {
+  const { data } = await apiClient.get<Blob>("/api/jobs/export.csv", {
+    responseType: "blob",
+  });
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `terraiq-jobs-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function listVehicles(): Promise<Vehicle[]> {
   const { data } = await apiClient.get<Vehicle[]>("/api/vehicles");
+  return data;
+}
+
+export async function fetchFleetUsage(): Promise<FleetUsage> {
+  const { data } = await apiClient.get<FleetUsage>("/api/fleet/usage");
+  return data;
+}
+
+export async function createFleetInvite(email: string): Promise<void> {
+  await apiClient.post("/api/fleet/invites", { email });
+}
+
+export async function fetchAuditLog(page = 1, page_size = 25): Promise<AuditLogPage> {
+  const { data } = await apiClient.get<AuditLogPage>("/api/fleet/audit-events", { params: { page, page_size } });
+  return data;
+}
+
+export async function fetchWebhookDeliveries(page = 1, page_size = 25): Promise<WebhookDeliveryPage> {
+  const { data } = await apiClient.get<WebhookDeliveryPage>("/api/fleet/webhook-deliveries", {
+    params: { page, page_size },
+  });
   return data;
 }
 
@@ -255,5 +391,169 @@ export async function getSweep(jobId: string, apiKey: string): Promise<SweepJob>
   const { data } = await apiClient.get<SweepJob>(`/v1/sweep/${jobId}`, {
     headers: { "X-API-Key": apiKey },
   });
+  return data;
+}
+
+// ─── Pilot: corridors, batches, telemetry, ops ───────────────────────────────
+
+export interface SavedCorridor {
+  id: string;
+  fleet_id: string;
+  name: string;
+  origin: string;
+  destination: string;
+  vehicle_id: string;
+  load_kg: number | null;
+  time_budget_fraction: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobBatchRow {
+  id: string;
+  fleet_id: string;
+  name: string | null;
+  status: string;
+  config: Record<string, unknown>;
+  summary: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface BatchListResponse {
+  items: JobBatchRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface TelemetryUploadRow {
+  id: string;
+  fleet_id: string;
+  job_id: string | null;
+  corridor_id: string | null;
+  original_filename: string;
+  row_count: number;
+  status: string;
+  adherence: Record<string, unknown> | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TelemetryListResponse {
+  items: TelemetryUploadRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface OpsBoardRow {
+  corridor_id: string;
+  corridor_name: string;
+  origin: string;
+  destination: string;
+  last_job_id: string | null;
+  last_job_status: string | null;
+  last_job_completed_at: string | null;
+  fuel_saved_liters: number | null;
+  fuel_saved_pct: number | null;
+  cost_saved_usd: number | null;
+  adherence_pct: number | null;
+}
+
+export async function fetchCorridors(): Promise<SavedCorridor[]> {
+  const { data } = await apiClient.get<SavedCorridor[]>("/api/corridors");
+  return data;
+}
+
+export async function createCorridor(body: {
+  name: string;
+  origin: string;
+  destination: string;
+  vehicle_id?: string;
+  load_kg?: number;
+  time_budget_fraction?: number;
+}): Promise<SavedCorridor> {
+  const { data } = await apiClient.post<SavedCorridor>("/api/corridors", body);
+  return data;
+}
+
+export async function duplicateCorridor(id: string): Promise<SavedCorridor> {
+  const { data } = await apiClient.post<SavedCorridor>(`/api/corridors/${id}/duplicate`);
+  return data;
+}
+
+export async function deleteCorridor(id: string): Promise<void> {
+  await apiClient.delete(`/api/corridors/${id}`);
+}
+
+export async function createJobBatch(corridor_ids: string[], name?: string): Promise<JobBatchRow> {
+  const { data } = await apiClient.post<JobBatchRow>("/api/batches", { corridor_ids, name });
+  return data;
+}
+
+export async function listJobBatches(page = 1): Promise<BatchListResponse> {
+  const { data } = await apiClient.get<BatchListResponse>("/api/batches", { params: { page } });
+  return data;
+}
+
+export async function fetchOpsBoard(): Promise<OpsBoardRow[]> {
+  const { data } = await apiClient.get<OpsBoardRow[]>("/api/pilot/ops-board");
+  return data;
+}
+
+export async function listTelemetryUploads(page = 1): Promise<TelemetryListResponse> {
+  const { data } = await apiClient.get<TelemetryListResponse>("/api/telemetry", { params: { page } });
+  return data;
+}
+
+export async function submitTelemetryUpload(file: File, jobId: string, corridorId?: string): Promise<TelemetryUploadRow> {
+  const form = new FormData();
+  form.append("file", file);
+  const params = new URLSearchParams({ job_id: jobId });
+  if (corridorId) params.set("corridor_id", corridorId);
+  const { data } = await apiClient.post<TelemetryUploadRow>(
+    `/api/telemetry?${params.toString()}`,
+    form,
+    {
+      transformRequest: [
+        (body, headers) => {
+          if (body instanceof FormData) {
+            delete headers["Content-Type"];
+          }
+          return body;
+        },
+      ],
+    }
+  );
+  return data;
+}
+
+export async function downloadPilotPackageCsv(): Promise<void> {
+  const { data } = await apiClient.get<Blob>("/api/pilot/export-package.csv", { responseType: "blob" });
+  const url = URL.createObjectURL(data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `terraiq-pilot-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function fetchFleetDataExport(): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.get<Record<string, unknown>>("/api/fleet/data-export");
+  return data;
+}
+
+export async function purgeFleetData(includeJobs: boolean): Promise<void> {
+  await apiClient.delete("/api/fleet/data-purge", { data: { include_jobs: includeJobs } });
+}
+
+export async function startBillingCheckout(): Promise<{ url: string }> {
+  const { data } = await apiClient.post<{ url: string }>("/api/billing/checkout-session");
   return data;
 }

@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, TrendingUp } from "lucide-react";
+import { fetchFleetUsage, updateOnboarding } from "../api/client";
 import { RouteForm } from "../components/RouteForm";
 import { MetricsBar } from "../components/MetricsBar";
 import { RouteMap } from "../components/map/RouteMap";
@@ -8,13 +10,20 @@ import { SweepChart } from "../components/charts/SweepChart";
 import { JobStatusBadge } from "../components/JobStatusBadge";
 import { useSubmitJob, useJob, useSubmitSweep } from "../hooks/useJob";
 import type { JobConfig } from "../api/client";
+import { useAuth } from "../contexts/AuthContext";
 
 type Mode = "optimize" | "sweep";
 
 export function Dashboard() {
+  const { user, refreshUser } = useAuth();
   const [mode, setMode] = useState<Mode>("optimize");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeSweepId, setActiveSweepId] = useState<string | null>(null);
+
+  const { data: usage } = useQuery({
+    queryKey: ["fleet-usage"],
+    queryFn: fetchFleetUsage,
+  });
 
   const submitMutation = useSubmitJob();
   const sweepMutation = useSubmitSweep();
@@ -57,8 +66,43 @@ export function Dashboard() {
   const activeJob = mode === "sweep" ? sweepJob : job;
   const isLoading = mode === "sweep" ? isSweeping : isOptimizing;
 
+  async function dismissOnboarding() {
+    await updateOnboarding(true);
+    await refreshUser();
+  }
+
   return (
     <div className="flex flex-col h-full">
+      {user && !user.onboarding_completed && (
+        <div className="bg-forest-50 border-b border-forest-200 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-forest-900">
+            Welcome — choose Optimize or Sweep on the left, then run a route.
+          </p>
+          <button type="button" className="btn-secondary text-xs" onClick={() => void dismissOnboarding()}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {usage && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-6 py-3 border-b border-stone-200 bg-white text-sm">
+          <div>
+            <p className="text-xs text-stone-500 uppercase tracking-wide">Jobs (fleet)</p>
+            <p className="font-semibold text-stone-800">{usage.jobs_total}</p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-500 uppercase tracking-wide">This month</p>
+            <p className="font-semibold text-stone-800">{usage.jobs_this_month}</p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-500 uppercase tracking-wide">Completed</p>
+            <p className="font-semibold text-forest-700">{usage.jobs_completed}</p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-500 uppercase tracking-wide">API key calls</p>
+            <p className="font-semibold text-stone-800">{usage.api_key_usage_total}</p>
+          </div>
+        </div>
+      )}
       {/* Metrics bar */}
       {hasOptResults && mode === "optimize" && (
         <MetricsBar

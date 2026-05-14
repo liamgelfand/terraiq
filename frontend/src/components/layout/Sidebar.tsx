@@ -1,4 +1,4 @@
-import { BarChart3, History, KeyRound, LayoutDashboard, LogOut } from "lucide-react";
+import { BarChart3, ClipboardList, History, KeyRound, LayoutDashboard, LogOut, MapPin, Radar, Route, ScrollText, Settings, Webhook } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { cn } from "../../lib/utils";
 
@@ -11,17 +11,29 @@ interface NavItem {
 interface SidebarProps {
   page: string;
   onNavigate: (page: string) => void;
+  isAdmin?: boolean;
 }
 
-const navItems: NavItem[] = [
+const baseNav: NavItem[] = [
   { label: "Dashboard", icon: <LayoutDashboard size={18} />, page: "dashboard" },
+  { label: "Corridors", icon: <Route size={18} />, page: "corridors" },
+  { label: "Batch runs", icon: <ClipboardList size={18} />, page: "batches" },
+  { label: "Telemetry", icon: <Radar size={18} />, page: "telemetry" },
+  { label: "Ops board", icon: <MapPin size={18} />, page: "ops" },
   { label: "History", icon: <History size={18} />, page: "history" },
   { label: "Analytics", icon: <BarChart3 size={18} />, page: "analytics" },
   { label: "API Keys", icon: <KeyRound size={18} />, page: "api-keys" },
+  { label: "Settings", icon: <Settings size={18} />, page: "settings" },
 ];
 
-export function Sidebar({ page, onNavigate }: SidebarProps) {
+const adminNav: NavItem[] = [
+  { label: "Audit log", icon: <ScrollText size={18} />, page: "audit" },
+  { label: "Webhook log", icon: <Webhook size={18} />, page: "webhooks" },
+];
+
+export function Sidebar({ page, onNavigate, isAdmin = false }: SidebarProps) {
   const { user, logout } = useAuth();
+  const navItems = isAdmin ? [...baseNav, ...adminNav] : baseNav;
 
   return (
     <aside className="w-56 flex-shrink-0 h-screen bg-forest-700 flex flex-col">

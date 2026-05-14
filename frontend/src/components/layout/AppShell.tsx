@@ -4,16 +4,31 @@ import { ForgotPassword } from "../../pages/ForgotPassword";
 import { Login } from "../../pages/Login";
 import { Register } from "../../pages/Register";
 import { ResetPassword } from "../../pages/ResetPassword";
+import { AcceptInvite } from "../../pages/AcceptInvite";
 import { Sidebar } from "./Sidebar";
 
 // Heavy pages are lazy-loaded so their JS chunks are fetched only on first visit.
 // Auth pages are kept eager since they're shown before any navigation occurs.
 const Dashboard = lazy(() => import("../../pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+const CorridorsPage = lazy(() => import("../../pages/CorridorsPage").then((m) => ({ default: m.CorridorsPage })));
+const PilotBatchesPage = lazy(() => import("../../pages/PilotBatchesPage").then((m) => ({ default: m.PilotBatchesPage })));
+const TelemetryPage = lazy(() => import("../../pages/TelemetryPage").then((m) => ({ default: m.TelemetryPage })));
+const OpsBoardPage = lazy(() => import("../../pages/OpsBoardPage").then((m) => ({ default: m.OpsBoardPage })));
 const History   = lazy(() => import("../../pages/History").then((m) => ({ default: m.History })));
 const Analytics = lazy(() => import("../../pages/Analytics").then((m) => ({ default: m.Analytics })));
 const ApiKeys   = lazy(() => import("../../pages/ApiKeys").then((m) => ({ default: m.ApiKeys })));
+const SettingsPage = lazy(() => import("../../pages/Settings").then((m) => ({ default: m.Settings })));
+const AuditLog = lazy(() => import("../../pages/AuditLog").then((m) => ({ default: m.AuditLog })));
+const WebhookDeliveries = lazy(() =>
+  import("../../pages/WebhookDeliveries").then((m) => ({ default: m.WebhookDeliveries }))
+);
 
 type AuthScreen = "login" | "register" | "forgot";
+
+function getInviteToken(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("invite_token");
+}
 
 function getResetToken(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -34,6 +49,7 @@ export function AppShell() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>("login");
 
   const resetToken = getResetToken();
+  const inviteToken = getInviteToken();
 
   if (isLoading) {
     return (
@@ -50,6 +66,10 @@ export function AppShell() {
         onGoLogin={() => setAuthScreen("login")}
       />
     );
+  }
+
+  if (inviteToken && !user) {
+    return <AcceptInvite token={inviteToken} />;
   }
 
   if (!user) {
@@ -69,13 +89,20 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-stone-50">
-      <Sidebar page={page} onNavigate={setPage} />
+      <Sidebar page={page} onNavigate={setPage} isAdmin={user.role === "admin"} />
       <main className="flex-1 overflow-auto">
         <Suspense fallback={<PageFallback />}>
           {page === "dashboard" && <Dashboard />}
+          {page === "corridors" && <CorridorsPage />}
+          {page === "batches" && <PilotBatchesPage />}
+          {page === "telemetry" && <TelemetryPage />}
+          {page === "ops" && <OpsBoardPage />}
           {page === "history"   && <History />}
           {page === "analytics" && <Analytics />}
           {page === "api-keys"  && <ApiKeys />}
+          {page === "settings" && <SettingsPage />}
+          {page === "audit" && <AuditLog />}
+          {page === "webhooks" && <WebhookDeliveries />}
         </Suspense>
       </main>
     </div>

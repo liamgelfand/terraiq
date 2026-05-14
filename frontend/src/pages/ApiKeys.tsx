@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Plus, Trash2, Check, KeyRound } from "lucide-react";
 import { apiClient } from "../api/client";
+import { useAuth } from "../contexts/AuthContext";
 
 interface ApiKey {
   id: string;
@@ -107,6 +108,8 @@ function KeyRevealModal({ apiKey, onClose }: { apiKey: ApiKeyCreated; onClose: (
 
 export function ApiKeys() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [showNew, setShowNew] = useState(false);
   const [revealedKey, setRevealedKey] = useState<ApiKeyCreated | null>(null);
 
@@ -134,11 +137,18 @@ export function ApiKeys() {
           <p className="text-sm text-stone-500 mt-0.5">
             Use these keys to authenticate requests to <code className="bg-stone-100 px-1 rounded text-xs">/v1/optimize</code>
           </p>
+          {!isAdmin && (
+            <p className="text-xs text-earth-700 mt-2 bg-earth-50 border border-earth-200 rounded-md px-2 py-1.5 inline-block">
+              Only fleet administrators can create or revoke keys. You can still use existing keys below.
+            </p>
+          )}
         </div>
-        <button onClick={() => setShowNew(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={16} />
-          New key
-        </button>
+        {isAdmin && (
+          <button onClick={() => setShowNew(true)} className="btn-primary flex items-center gap-2">
+            <Plus size={16} />
+            New key
+          </button>
+        )}
       </div>
 
       {/* Usage example */}
@@ -200,7 +210,7 @@ export function ApiKeys() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {key.is_active && (
+                    {isAdmin && key.is_active && (
                       <button
                         onClick={() => revokeMutation.mutate(key.id)}
                         className="p-1.5 rounded hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
