@@ -18,6 +18,12 @@ import api.models.user            # noqa: E402, F401
 import api.models.api_key         # noqa: E402, F401
 import api.models.job             # noqa: E402, F401
 import api.models.password_reset  # noqa: E402, F401
+import api.models.fleet_invite    # noqa: E402, F401
+import api.models.audit_event     # noqa: E402, F401
+import api.models.webhook_delivery  # noqa: E402, F401
+import api.models.saved_corridor  # noqa: E402, F401
+import api.models.job_batch       # noqa: E402, F401
+import api.models.telemetry_upload  # noqa: E402, F401
 
 target_metadata = Base.metadata
 

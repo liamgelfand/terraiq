@@ -65,7 +65,8 @@ async def test_jobs_list_scoped_to_fleet(client: AsyncClient):
 
     other_list = await client.get("/api/jobs", headers=other_headers)
     assert other_list.status_code == 200
-    assert other_list.json() == []
+    assert other_list.json()["items"] == []
+    assert other_list.json()["total"] == 0
 
 
 async def test_unauthenticated_jobs_returns_401(client: AsyncClient):

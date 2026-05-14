@@ -4,8 +4,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import AnyHttpUrl, BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_db, require_api_key
@@ -30,6 +31,10 @@ class VehicleInput(BaseModel):
 class OptimizeRequest(BaseModel):
     origin: str = Field(..., description="Origin place name, e.g. 'Denver, CO'")
     destination: str = Field(..., description="Destination place name")
+    vehicle_id: str = Field(
+        default="freightliner_2022",
+        description="Vehicle profile id — list with GET /api/vehicles",
+    )
     vehicle: VehicleInput = Field(default_factory=VehicleInput)
     time_budget_fraction: float = Field(
         default=1.05,
@@ -41,8 +46,14 @@ class OptimizeRequest(BaseModel):
         default=False,
         description=(
             "If true, the speed_profile is filtered to only waypoints where the "
-            "recommended speed changes by more than 5 km/h. Reduces response size "
-            "from hundreds of points to ~10–30 actionable advisory zones."
+            "recommended speed changes by more than 5 km/h. Reduces response size."
+        ),
+    )
+    webhook_url: AnyHttpUrl | None = Field(
+        default=None,
+        description=(
+            "Optional HTTPS URL. On job.completed or job.failed, TerraIQ POSTs a JSON body "
+            "with headers X-TerraIQ-Signature (HMAC-SHA256 of body) and X-TerraIQ-Event."
         ),
     )
 
@@ -74,11 +85,27 @@ class OptimizeResponse(BaseModel):
     poll_url: str
     result: OptimizeResult | None = None
     error: str | None = None
+    error_code: str | None = None
+
+
+class BatchOptimizeRequest(BaseModel):
+    items: list[OptimizeRequest] = Field(..., min_length=1, max_length=25)
+
+
+class BatchOptimizeRow(BaseModel):
+    job_id: str
+    status: str
+    created_at: datetime
+    poll_url: str
+
+
+class BatchOptimizeResponse(BaseModel):
+    jobs: list[BatchOptimizeRow]
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-_SIMPLIFY_THRESHOLD_KMH = 5.0  # minimum speed delta to include a waypoint
+_SIMPLIFY_THRESHOLD_KMH = 5.0
 
 
 def _build_speed_profile(result: dict, simplified: bool = False) -> list[dict]:
@@ -101,7 +128,6 @@ def _build_speed_profile(result: dict, simplified: bool = False) -> list[dict]:
     if not simplified or len(all_points) < 3:
         return all_points
 
-    # Keep first, last, and any point where speed changes by more than the threshold
     kept = [all_points[0]]
     for i in range(1, len(all_points) - 1):
         delta = abs(
@@ -122,6 +148,7 @@ def _format_response(job: Job, simplified: bool = False) -> OptimizeResponse:
         completed_at=job.completed_at,
         poll_url=f"/v1/optimize/{job.id}",
         error=job.error_message,
+        error_code=job.error_code,
     )
 
     if job.status == "completed" and job.result:
@@ -148,26 +175,41 @@ async def submit_optimization(
     body: OptimizeRequest,
     db: AsyncSession = Depends(get_db),
     api_key=Depends(require_api_key),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> Any:
     """
-    Submit a route optimization job.
-    Returns immediately with a job_id and poll_url.
-    Poll GET /v1/optimize/{job_id} until status is `completed`.
-    Rate limited to 60 requests / 60s per API key.
+    Submit a route optimization job. Use header **Idempotency-Key** to safely retry
+    the same logical request (returns the original job). Optional **webhook_url** receives
+    `job.completed` / `job.failed` with HMAC signature.
     """
     await check_rate_limit(api_key.id)
 
+    key = (idempotency_key or "").strip()[:128]
+    if key:
+        result = await db.execute(
+            select(Job).where(Job.api_key_id == api_key.id, Job.idempotency_key == key)
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return _format_response(existing, simplified=body.simplified)
+
+    wh = str(body.webhook_url) if body.webhook_url else None
     config: dict = {
         "origin": body.origin,
         "destination": body.destination,
-        "vehicle_id": "freightliner_2022",
+        "vehicle_id": body.vehicle_id,
         "time_budget_fraction": body.time_budget_fraction,
         "load_kg": body.vehicle.load_kg,
         "simplified": body.simplified,
+        "job_type": "optimize",
+        "webhook_url": wh,
     }
 
     job = Job(
         id=str(uuid.uuid4()),
+        fleet_id=api_key.fleet_id,
+        api_key_id=api_key.id,
+        idempotency_key=key or None,
         status="pending",
         config=config,
     )
@@ -179,6 +221,52 @@ async def submit_optimization(
     run_simulation.delay(job.id)
 
     return _format_response(job, simplified=body.simplified)
+
+
+@router.post("/batch", response_model=BatchOptimizeResponse, status_code=202)
+async def submit_optimization_batch(
+    body: BatchOptimizeRequest,
+    db: AsyncSession = Depends(get_db),
+    api_key=Depends(require_api_key),
+) -> Any:
+    """Submit up to 25 independent optimize jobs in one request (each is rate-limited)."""
+    rows: list[BatchOptimizeRow] = []
+    for item in body.items:
+        await check_rate_limit(api_key.id)
+        wh = str(item.webhook_url) if item.webhook_url else None
+        config: dict = {
+            "origin": item.origin,
+            "destination": item.destination,
+            "vehicle_id": item.vehicle_id,
+            "time_budget_fraction": item.time_budget_fraction,
+            "load_kg": item.vehicle.load_kg,
+            "simplified": item.simplified,
+            "job_type": "optimize",
+            "webhook_url": wh,
+        }
+        job = Job(
+            id=str(uuid.uuid4()),
+            fleet_id=api_key.fleet_id,
+            api_key_id=api_key.id,
+            idempotency_key=None,
+            status="pending",
+            config=config,
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        from api.workers.tasks import run_simulation  # noqa: PLC0415
+
+        run_simulation.delay(job.id)
+        rows.append(
+            BatchOptimizeRow(
+                job_id=job.id,
+                status=job.status,
+                created_at=job.created_at,
+                poll_url=f"/v1/optimize/{job.id}",
+            )
+        )
+    return BatchOptimizeResponse(jobs=rows)
 
 
 @router.get("/{job_id}", response_model=OptimizeResponse)

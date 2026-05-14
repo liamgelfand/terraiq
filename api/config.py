@@ -23,6 +23,27 @@ class Settings(BaseSettings):
     # Set DEBUG=true in .env for local dev; production must explicitly set DEBUG=false
     debug: bool = True
 
+    # Public URL of the SPA (password reset links, webhook docs). No trailing slash.
+    public_app_url: str = "http://localhost:5173"
+
+    # Resend (https://resend.com) — transactional email. If unset, reset links log only.
+    resend_api_key: str | None = None
+    email_from: str = "TerraIQ <onboarding@resend.dev>"
+
+    # HMAC secret for signing outbound webhooks to customer URLs (job.completed / job.failed)
+    webhook_signing_secret: str = "change-me-webhook-signing-secret"
+
+    # Stripe (optional) — checkout + customer portal for pilots
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_price_pilot_monthly: str | None = None
+
+    # dev | pilot | production — informational for logs/headers
+    deployment_profile: str = "dev"
+
+    # Documented retention target for pilot exports / purge copy
+    data_retention_days: int = 365
+
     @model_validator(mode="after")
     def _validate_secrets(self) -> "Settings":
         if not self.debug and self.jwt_secret == _DEFAULT_JWT_SECRET:

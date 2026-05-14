@@ -113,6 +113,16 @@ async def test_submit_increments_key_usage(client: AsyncClient, db_session: Asyn
     assert after == before + 1
 
 
+async def test_idempotency_key_returns_same_job(client: AsyncClient, db_session: AsyncSession):
+    raw_key = await _create_api_key(client, db_session)
+    headers = {"X-API-Key": raw_key, "Idempotency-Key": "idem-test-abc"}
+    first = await client.post("/v1/optimize", json=VALID_BODY, headers=headers)
+    second = await client.post("/v1/optimize", json=VALID_BODY, headers=headers)
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()["job_id"] == second.json()["job_id"]
+
+
 # ── Polling ───────────────────────────────────────────────────────────────────
 
 async def test_poll_returns_job_by_id(client: AsyncClient, db_session: AsyncSession):

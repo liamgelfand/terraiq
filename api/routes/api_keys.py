@@ -4,13 +4,14 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_current_user, get_db
+from api.deps import get_current_user, get_db, require_fleet_admin
 from api.models.api_key import ApiKey
 from api.schemas.api_key import ApiKeyCreate, ApiKeyCreatedResponse, ApiKeyResponse
+from api.services.audit import record_audit_event
 
 router = APIRouter(prefix="/api/keys", tags=["api-keys"])
 
@@ -26,9 +27,9 @@ def _generate_key() -> tuple[str, str, str]:
 async def create_api_key(
     body: ApiKeyCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    admin=Depends(require_fleet_admin),
 ) -> dict:
-    user, fleet = current_user
+    user, fleet = admin
     raw_key, key_hash, key_prefix = _generate_key()
 
     api_key = ApiKey(
@@ -41,6 +42,16 @@ async def create_api_key(
     db.add(api_key)
     await db.commit()
     await db.refresh(api_key)
+
+    await record_audit_event(
+        db,
+        fleet_id=fleet.id,
+        actor_user_id=user.id,
+        action="api_key.created",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        details={"name": body.name},
+    )
 
     return {
         "id": api_key.id,
@@ -66,15 +77,25 @@ async def list_api_keys(
     return list(result.scalars().all())
 
 
-@router.delete("/{key_id}", status_code=204)
+@router.delete("/{key_id}", status_code=204, response_class=Response)
 async def revoke_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
-) -> None:
-    user, fleet = current_user
+    admin=Depends(require_fleet_admin),
+) -> Response:
+    user, fleet = admin
     api_key = await db.get(ApiKey, key_id)
     if not api_key or api_key.fleet_id != fleet.id:
         raise HTTPException(status_code=404, detail="API key not found")
     api_key.is_active = False
     await db.commit()
+    await record_audit_event(
+        db,
+        fleet_id=fleet.id,
+        actor_user_id=user.id,
+        action="api_key.revoked",
+        resource_type="api_key",
+        resource_id=api_key.id,
+        details=None,
+    )
+    return Response(status_code=204)

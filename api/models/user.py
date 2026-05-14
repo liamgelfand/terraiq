@@ -21,6 +21,8 @@ class User(Base):
     fleet_id: Mapped[str] = mapped_column(
         String, ForeignKey("fleets.id"), nullable=False
     )
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")
+    onboarding_completed: Mapped[bool] = mapped_column(default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

@@ -72,6 +72,9 @@ async def client(db_session: AsyncSession):
     import api.workers.tasks as tasks_module  # noqa: PLC0415
     tasks_module.run_simulation.delay = lambda *a, **kw: None  # type: ignore[attr-defined]
     tasks_module.run_sweep.delay = lambda *a, **kw: None  # type: ignore[attr-defined]
+    tasks_module.deliver_webhook.delay = lambda *a, **kw: None  # type: ignore[attr-defined]
+    tasks_module.run_batch.delay = lambda *a, **kw: None  # type: ignore[attr-defined]
+    tasks_module.process_telemetry_upload.delay = lambda *a, **kw: None  # type: ignore[attr-defined]
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac

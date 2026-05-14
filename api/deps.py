@@ -52,6 +52,19 @@ async def get_current_user(
     return user, fleet
 
 
+async def require_fleet_admin(
+    current_user=Depends(get_current_user),
+):
+    """Require JWT user with fleet admin role."""
+    user, fleet = current_user
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Fleet administrator role required for this action",
+        )
+    return user, fleet
+
+
 async def require_api_key(
     x_api_key: str = Header(alias="X-API-Key"),
     db: AsyncSession = Depends(get_db),
