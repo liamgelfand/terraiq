@@ -7,7 +7,7 @@ SHELL := powershell.exe
 .PHONY: dev dev-local stop up down backend worker frontend \
         install migrate migration logs simulate \
         test test-be test-unit test-integration test-fe test-e2e \
-        help
+        help openapi-export
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help:
@@ -17,7 +17,7 @@ help:
 	@Write-Host '  make dev-local         Docker (Postgres+Redis) + local API/Celery/Frontend'
 	@Write-Host '  make stop              Stop and remove Docker containers'
 	@Write-Host '  make backend           Run FastAPI dev server (local venv)'
-	@Write-Host '  make worker            Run Celery worker (local venv)'
+	@Write-Host '  make worker            Run Celery worker (optimize,sweep,webhooks queues)'
 	@Write-Host '  make frontend          Run Vite dev server'
 	@Write-Host '  make install           Install Python + Node dependencies'
 	@Write-Host '  make migrate           Apply pending DB migrations'
@@ -32,6 +32,9 @@ help:
 	@Write-Host '  make test-integration  Integration tests — SQLite + fakeredis'
 	@Write-Host '  make test-fe           Frontend component tests (Vitest)'
 	@Write-Host '  make test-e2e          E2E tests — requires: make dev first'
+	@Write-Host ''
+	@Write-Host '  ── OpenAPI ───────────────────────────────────────────────────────'
+	@Write-Host '  make openapi-export    Save OpenAPI JSON to sdk/openapi.json (API on :8000)'
 	@Write-Host ''
 
 # ── Dev entrypoints ───────────────────────────────────────────────────────────
@@ -48,7 +51,7 @@ dev:
 dev-local:
 	docker compose up -d postgres redis
 	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - FastAPI'; .\venv\Scripts\Activate.ps1; uvicorn api.main:app --reload"
-	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - Celery'; .\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info"
+	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)'; $$host.UI.RawUI.WindowTitle='TerraIQ - Celery'; .\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info -Q optimize,sweep,webhooks"
 	Start-Process powershell -ArgumentList '-NoExit','-Command',"Set-Location '$(CURDIR)\frontend'; $$host.UI.RawUI.WindowTitle='TerraIQ - Frontend'; npm run dev"
 	Write-Host ''
 	Write-Host '  Services started (3 new windows).' -ForegroundColor Green
@@ -73,7 +76,7 @@ backend:
 	.\venv\Scripts\Activate.ps1; uvicorn api.main:app --reload
 
 worker:
-	.\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info
+	.\venv\Scripts\Activate.ps1; celery -A api.workers.celery_app worker --loglevel=info -Q optimize,sweep,webhooks
 
 frontend:
 	Set-Location frontend; npm run dev
@@ -113,6 +116,12 @@ test-fe:
 # End-to-end tests via Playwright — requires all services running (make dev)
 test-e2e:
 	npx playwright test
+
+# ── OpenAPI export (API must be running) ─────────────────────────────────────
+openapi-export:
+	New-Item -ItemType Directory -Force -Path sdk | Out-Null
+	Invoke-WebRequest -UseBasicParsing -Uri http://localhost:8000/openapi.json -OutFile sdk/openapi.json
+	Write-Host 'Wrote sdk/openapi.json'
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 install:

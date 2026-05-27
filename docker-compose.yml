@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: docker/backend.Dockerfile
-    command: celery -A api.workers.celery_app worker --loglevel=info
+    command: celery -A api.workers.celery_app worker --loglevel=info -Q optimize,sweep,webhooks
     environment:
       DATABASE_URL: postgresql+asyncpg://terraiq:terraiq@postgres:5432/terraiq
       DATABASE_URL_SYNC: postgresql+psycopg2://terraiq:terraiq@postgres:5432/terraiq
