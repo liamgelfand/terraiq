@@ -21,6 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from api.database import Base
 from api.deps import get_db
 from api.main import app
+import api.models.lead  # noqa: F401 — register Lead on Base.metadata
 import api.ratelimit as ratelimit_module
 
 # ── In-memory SQLite engine ────────────────────────────────────────────────────

@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_db, require_api_key
+from api.deps import fleet_for_api_key, get_db, require_api_key
 from api.models.job import Job
+from api.ratelimit import check_rate_limit
+from api.services.plans import assert_can_create_jobs
 
 router = APIRouter(prefix="/v1/sweep", tags=["v1"])
 
@@ -73,13 +75,16 @@ def _format_sweep_response(job: Job) -> SweepResponse:
 async def submit_sweep(
     body: SweepRequest,
     db: AsyncSession = Depends(get_db),
-    _api_key=Depends(require_api_key),
+    auth=Depends(fleet_for_api_key),
 ) -> Any:
     """
     Submit a Pareto sweep job.
     Runs the optimizer at 6 time budgets to generate a cost-vs-time Pareto curve.
     Poll GET /v1/sweep/{job_id} until status is `completed`.
     """
+    api_key, fleet = auth
+    await check_rate_limit(api_key.id)
+    await assert_can_create_jobs(db, fleet, 1)
     config: dict = {
         "job_type": "sweep",
         "origin": body.origin,
@@ -87,7 +92,13 @@ async def submit_sweep(
         "vehicle_id": "freightliner_2022",
         "load_kg": body.vehicle.load_kg,
     }
-    job = Job(id=str(uuid.uuid4()), status="pending", config=config)
+    job = Job(
+        id=str(uuid.uuid4()),
+        fleet_id=fleet.id,
+        api_key_id=api_key.id,
+        status="pending",
+        config=config,
+    )
     db.add(job)
     await db.commit()
     await db.refresh(job)

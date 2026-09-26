@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { Printer } from "lucide-react";
 import { downloadPilotPackageCsv, fetchOpsBoard, type OpsBoardRow } from "../api/client";
 
-export function OpsBoardPage() {
+interface OpsBoardPageProps {
+  onOpenBrief?: (jobId: string) => void;
+}
+
+export function OpsBoardPage({ onOpenBrief }: OpsBoardPageProps) {
   const { data, isLoading, refetch } = useQuery({ queryKey: ["ops-board"], queryFn: fetchOpsBoard });
 
   return (
@@ -9,7 +14,7 @@ export function OpsBoardPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-xl font-semibold text-stone-900">Ops board</h1>
-          <p className="text-sm text-stone-600">Latest job and adherence by saved corridor.</p>
+          <p className="text-sm text-stone-600">Today’s lanes: latest job, simulated savings, and print-ready briefs.</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -38,7 +43,9 @@ export function OpsBoardPage() {
               <th className="px-3 py-2 font-medium">Route</th>
               <th className="px-3 py-2 font-medium">Last job</th>
               <th className="px-3 py-2 font-medium">Fuel saved (L)</th>
+              <th className="px-3 py-2 font-medium">Cost ($)</th>
               <th className="px-3 py-2 font-medium">Adherence %</th>
+              <th className="px-3 py-2 font-medium print:hidden">Brief</th>
             </tr>
           </thead>
           <tbody>
@@ -54,17 +61,34 @@ export function OpsBoardPage() {
                       {row.last_job_id.slice(0, 8)}… ({row.last_job_status})
                     </span>
                   ) : (
-                    <span className="text-stone-400">—</span>
+                    <span className="text-stone-400">-</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-stone-800">
-                  {row.fuel_saved_liters != null ? row.fuel_saved_liters.toFixed(2) : "—"}
+                  {row.fuel_saved_liters != null ? row.fuel_saved_liters.toFixed(2) : "-"}
+                </td>
+                <td className="px-3 py-2 text-stone-800">
+                  {row.cost_saved_usd != null ? `$${row.cost_saved_usd.toFixed(2)}` : "-"}
                 </td>
                 <td className="px-3 py-2">
                   {row.adherence_pct != null ? (
                     <span className="text-forest-800 font-medium">{row.adherence_pct}%</span>
                   ) : (
-                    <span className="text-stone-400">—</span>
+                    <span className="text-stone-400">-</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 print:hidden">
+                  {row.last_job_id && row.last_job_status === "completed" && onOpenBrief ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-xs text-forest-700 hover:underline"
+                      onClick={() => onOpenBrief(row.last_job_id!)}
+                    >
+                      <Printer size={12} />
+                      Print
+                    </button>
+                  ) : (
+                    <span className="text-stone-400">-</span>
                   )}
                 </td>
               </tr>
@@ -73,7 +97,7 @@ export function OpsBoardPage() {
         </table>
       </div>
       {data && data.length === 0 && !isLoading && (
-        <p className="text-stone-500 text-sm mt-4">No corridors — add some under Corridors.</p>
+        <p className="text-stone-500 text-sm mt-4">No corridors. Add some under Corridors.</p>
       )}
     </div>
   );

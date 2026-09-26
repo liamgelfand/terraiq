@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ from api.deps import get_current_user, get_db
 from api.models.job import Job
 from api.models.saved_corridor import SavedCorridor
 from api.models.telemetry_upload import TelemetryUpload
-from api.services.driver_brief import build_driver_brief_from_job_result
+from api.services.driver_brief import build_driver_brief_from_job_result, render_driver_brief_html
 
 router = APIRouter(prefix="/api/pilot", tags=["pilot"])
 
@@ -187,11 +187,37 @@ async def driver_brief(
     if job.status != "completed" or not job.result:
         raise HTTPException(status_code=400, detail="Job has no completed result yet")
     cfg = dict(job.config or {})
-    brief = build_driver_brief_from_job_result(dict(job.result))
+    result = dict(job.result)
+    brief = build_driver_brief_from_job_result(result)
+    savings = result.get("savings") if isinstance(result.get("savings"), dict) else {}
     return {
         "job_id": job.id,
         "route": f"{cfg.get('origin', '')} → {cfg.get('destination', '')}",
+        "origin": cfg.get("origin"),
+        "destination": cfg.get("destination"),
+        "vehicle_id": cfg.get("vehicle_id"),
+        "fleet_name": fleet.name,
+        "savings": savings,
         "brief": brief,
         "lineage": job.lineage,
         "simulation_engine_version": job.simulation_engine_version,
+        "completed_at": job.completed_at,
     }
+
+
+@router.get("/jobs/{job_id}/driver-brief.html", response_class=HTMLResponse)
+async def driver_brief_html(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> HTMLResponse:
+    payload = await driver_brief(job_id, db, current_user)
+    html = render_driver_brief_html(
+        route=str(payload["route"]),
+        fleet_name=str(payload["fleet_name"]),
+        job_id=str(payload["job_id"]),
+        brief=dict(payload["brief"] or {}),
+        savings=payload.get("savings") if isinstance(payload.get("savings"), dict) else None,
+        vehicle_id=payload.get("vehicle_id"),
+    )
+    return HTMLResponse(html)

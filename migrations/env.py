@@ -24,6 +24,7 @@ import api.models.webhook_delivery  # noqa: E402, F401
 import api.models.saved_corridor  # noqa: E402, F401
 import api.models.job_batch       # noqa: E402, F401
 import api.models.telemetry_upload  # noqa: E402, F401
+import api.models.lead            # noqa: E402, F401
 
 target_metadata = Base.metadata
 

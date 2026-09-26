@@ -7,7 +7,7 @@ SHELL := powershell.exe
 .PHONY: dev dev-local stop up down backend worker frontend \
         install migrate migration logs simulate \
         test test-be test-unit test-integration test-fe test-e2e \
-        help openapi-export
+        help openapi-export prod
 
 # ── Default ────────────────────────────────────────────────────────────────────
 help:
@@ -16,6 +16,7 @@ help:
 	@Write-Host '  make dev               Start full stack via Docker Compose'
 	@Write-Host '  make dev-local         Docker (Postgres+Redis) + local API/Celery/Frontend'
 	@Write-Host '  make stop              Stop and remove Docker containers'
+	@Write-Host '  make prod              Production compose (nginx :80, no reload). Requires .env secrets.'
 	@Write-Host '  make backend           Run FastAPI dev server (local venv)'
 	@Write-Host '  make worker            Run Celery worker (optimize,sweep,webhooks queues)'
 	@Write-Host '  make frontend          Run Vite dev server'
@@ -60,6 +61,14 @@ dev-local:
 
 stop:
 	docker compose down
+
+prod:
+	docker compose -f docker-compose.prod.yml up -d --build
+	Write-Host ''
+	Write-Host '  Production stack starting.' -ForegroundColor Green
+	Write-Host '  App      -> http://localhost'
+	Write-Host '  API docs -> http://localhost/docs'
+	Write-Host '  DEBUG must be false and JWT_SECRET / WEBHOOK_SIGNING_SECRET must not be defaults.'
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 up:

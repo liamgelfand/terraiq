@@ -1,3 +1,6 @@
+# Local development (hot reload, published Postgres/Redis ports).
+# Paid-pilot host: docker compose -f docker-compose.prod.yml up -d --build
+
 services:
   backend:
     build:

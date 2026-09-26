@@ -15,8 +15,10 @@ scikit-learn
 # API
 fastapi
 uvicorn[standard]
+python-multipart
 prometheus-client
 pydantic-settings
+httpx
 
 # Database
 sqlalchemy[asyncio]
@@ -40,3 +42,4 @@ httpx
 aiosqlite
 fakeredis
 stripe>=10.0.0
+sentry-sdk[fastapi]

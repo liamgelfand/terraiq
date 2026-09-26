@@ -12,6 +12,7 @@ interface SidebarProps {
   page: string;
   onNavigate: (page: string) => void;
   isAdmin?: boolean;
+  isFounder?: boolean;
 }
 
 const baseNav: NavItem[] = [
@@ -31,9 +32,15 @@ const adminNav: NavItem[] = [
   { label: "Webhook log", icon: <Webhook size={18} />, page: "webhooks" },
 ];
 
-export function Sidebar({ page, onNavigate, isAdmin = false }: SidebarProps) {
+const founderNav: NavItem[] = [{ label: "Leads", icon: <ClipboardList size={18} />, page: "leads" }];
+
+export function Sidebar({ page, onNavigate, isAdmin = false, isFounder = false }: SidebarProps) {
   const { user, logout } = useAuth();
-  const navItems = isAdmin ? [...baseNav, ...adminNav] : baseNav;
+  const navItems = [
+    ...baseNav,
+    ...(isAdmin ? adminNav : []),
+    ...(isFounder ? founderNav : []),
+  ];
 
   return (
     <aside className="w-56 flex-shrink-0 h-screen bg-forest-700 flex flex-col">

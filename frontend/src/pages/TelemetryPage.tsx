@@ -49,7 +49,7 @@ export function TelemetryPage() {
             value={corridorId}
             onChange={(e) => setCorridorId(e.target.value)}
           >
-            <option value="">— None —</option>
+            <option value="">- None -</option>
             {(corridors ?? []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -72,7 +72,7 @@ export function TelemetryPage() {
           {upMut.isPending ? "Uploading…" : "Upload & process"}
         </button>
         {upMut.isError && (
-          <p className="text-sm text-red-600">Upload failed — check job id and CSV format.</p>
+          <p className="text-sm text-red-600">Upload failed. Check job id and CSV format.</p>
         )}
       </div>
 
@@ -84,7 +84,7 @@ export function TelemetryPage() {
             <p className="font-mono text-xs text-stone-500">{u.id}</p>
             <p className="text-stone-800">{u.original_filename}</p>
             <p className="text-stone-600">
-              Status: {u.status} — rows: {u.row_count}
+              Status: {u.status} - rows: {u.row_count}
             </p>
             {u.adherence && typeof u.adherence.pct_in_band === "number" && (
               <p className="text-forest-800 font-medium mt-1">

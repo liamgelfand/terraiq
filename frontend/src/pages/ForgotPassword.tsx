@@ -34,7 +34,7 @@ export function ForgotPassword({ onGoLogin }: ForgotPasswordProps) {
           </div>
           <h1 className="text-xl font-semibold text-stone-800">Reset your password</h1>
           <p className="text-sm text-stone-500 mt-1">
-            We'll log a reset link to the server console.
+            We'll send a reset link if email is configured.
           </p>
         </div>
 

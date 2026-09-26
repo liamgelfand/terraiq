@@ -14,43 +14,83 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
 
+def _stripe_ready() -> None:
+    if not settings.stripe_secret_key or not settings.stripe_price_pilot_monthly:
+        raise HTTPException(
+            status_code=503,
+            detail="Stripe billing is not configured (STRIPE_SECRET_KEY / STRIPE_PRICE_PILOT_MONTHLY).",
+        )
+
+
+def _import_stripe():
+    try:
+        import stripe
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail="stripe package not installed") from e
+    stripe.api_key = settings.stripe_secret_key
+    return stripe
+
+
 @router.post("/checkout-session")
 async def create_checkout_session(
     db: AsyncSession = Depends(get_db),
     admin=Depends(require_fleet_admin),
 ):
     """Create a Stripe Checkout session for the pilot subscription price (if configured)."""
-    if not settings.stripe_secret_key or not settings.stripe_price_pilot_monthly:
-        raise HTTPException(
-            status_code=503,
-            detail="Stripe billing is not configured (STRIPE_SECRET_KEY / STRIPE_PRICE_PILOT_MONTHLY).",
-        )
-    try:
-        import stripe
-    except ImportError as e:
-        raise HTTPException(status_code=503, detail="stripe package not installed") from e
+    _stripe_ready()
+    stripe = _import_stripe()
 
     user, fleet = admin
-    stripe.api_key = settings.stripe_secret_key
     session = stripe.checkout.Session.create(
         mode="subscription",
         success_url=f"{settings.public_app_url}/?billing=success",
         cancel_url=f"{settings.public_app_url}/?billing=cancel",
         line_items=[{"price": settings.stripe_price_pilot_monthly, "quantity": 1}],
         customer_email=user.email,
+        client_reference_id=fleet.id,
         metadata={"fleet_id": fleet.id},
+        subscription_data={"metadata": {"fleet_id": fleet.id}},
     )
     return {"url": session.url, "id": session.id}
+
+
+@router.post("/portal-session")
+async def create_portal_session(
+    db: AsyncSession = Depends(get_db),
+    admin=Depends(require_fleet_admin),
+):
+    """Open the Stripe customer portal to update payment method or cancel."""
+    _stripe_ready()
+    stripe = _import_stripe()
+    _user, fleet = admin
+    if not fleet.stripe_customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Stripe customer on this fleet yet. Start checkout first.",
+        )
+    session = stripe.billing_portal.Session.create(
+        customer=fleet.stripe_customer_id,
+        return_url=f"{settings.public_app_url}/",
+    )
+    return {"url": session.url}
+
+
+def _apply_subscription_status(fleet: Fleet, status: str | None, customer_id: str | None, sub_id: str | None) -> None:
+    if customer_id:
+        fleet.stripe_customer_id = str(customer_id)
+    if sub_id:
+        fleet.stripe_subscription_id = str(sub_id)
+    if status in ("active", "trialing"):
+        fleet.billing_plan = "pilot"
+    elif status in ("canceled", "unpaid", "incomplete_expired"):
+        fleet.billing_plan = "free"
 
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if not settings.stripe_webhook_secret:
         raise HTTPException(status_code=503, detail="Stripe webhook secret not configured")
-    try:
-        import stripe
-    except ImportError as e:
-        raise HTTPException(status_code=503, detail="stripe package not installed") from e
+    stripe = _import_stripe()
 
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
@@ -66,15 +106,45 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid signature") from e
 
-    if event["type"] == "checkout.session.completed":
-        obj = event["data"]["object"]
-        fleet_id = (obj.get("metadata") or {}).get("fleet_id")
+    obj = event["data"]["object"]
+    event_type = event["type"]
+
+    if event_type == "checkout.session.completed":
+        fleet_id = (obj.get("metadata") or {}).get("fleet_id") or obj.get("client_reference_id")
         if fleet_id:
             fleet = await db.get(Fleet, fleet_id)
             if fleet:
-                fleet.stripe_customer_id = obj.get("customer")
-                fleet.stripe_subscription_id = obj.get("subscription")
-                fleet.billing_plan = "pilot"
+                _apply_subscription_status(
+                    fleet,
+                    "active",
+                    obj.get("customer"),
+                    obj.get("subscription"),
+                )
                 await db.commit()
                 logger.info("Stripe checkout completed for fleet %s", fleet_id)
+
+    elif event_type in (
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "customer.subscription.created",
+    ):
+        fleet_id = (obj.get("metadata") or {}).get("fleet_id")
+        fleet = None
+        if fleet_id:
+            fleet = await db.get(Fleet, fleet_id)
+        if fleet is None and obj.get("customer"):
+            from sqlalchemy import select  # noqa: PLC0415
+
+            res = await db.execute(select(Fleet).where(Fleet.stripe_customer_id == str(obj["customer"])))
+            fleet = res.scalar_one_or_none()
+        if fleet:
+            _apply_subscription_status(
+                fleet,
+                obj.get("status"),
+                obj.get("customer"),
+                obj.get("id"),
+            )
+            await db.commit()
+            logger.info("Stripe subscription %s for fleet %s", obj.get("status"), fleet.id)
+
     return {"received": True}

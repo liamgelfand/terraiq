@@ -92,13 +92,13 @@ export function CorridorsPage() {
           {createMut.isPending ? "Saving…" : "Save corridor"}
         </button>
         {createMut.isError && (
-          <p className="text-sm text-red-600 mt-2">Could not save — check inputs or try again.</p>
+          <p className="text-sm text-red-600 mt-2">Could not save. Check inputs or try again.</p>
         )}
       </div>
 
       {isLoading && <p className="text-stone-500 text-sm">Loading…</p>}
       {data && data.length === 0 && !isLoading && (
-        <p className="text-stone-500 text-sm">No corridors yet — add one above.</p>
+        <p className="text-stone-500 text-sm">No corridors yet. Add one above.</p>
       )}
       <ul className="space-y-2">
         {(data ?? []).map((c: SavedCorridor) => (

@@ -13,7 +13,8 @@ from fastapi.openapi.utils import get_openapi
 
 from api.config import settings
 from api.middleware.request_id import RequestIdMiddleware
-from api.routes import analytics, api_keys, auth, batches, billing, corridors, fleet, health, jobs, metrics_route, pilot, telemetry, vehicles
+from api.middleware.security_headers import SecurityHeadersMiddleware
+from api.routes import analytics, api_keys, auth, batches, billing, corridors, fleet, health, jobs, leads, metrics_route, pilot, telemetry, vehicles, public
 from api.routes.v1 import optimize as v1_optimize
 from api.routes.v1 import sweep as v1_sweep
 
@@ -29,8 +30,24 @@ def _run_migrations() -> None:
     alembic_command.upgrade(cfg, "head")
 
 
+def _init_sentry() -> None:
+    if not settings.sentry_dsn:
+        return
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.deployment_profile,
+            traces_sample_rate=0.05,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("Sentry init failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    _init_sentry()
     _run_migrations()
     yield
 
@@ -48,16 +65,19 @@ tags_meta = [
     {"name": "batches", "description": "Run optimizations for many corridors at once."},
     {"name": "telemetry", "description": "Upload GPS/speed CSV and compute adherence vs optimized profile."},
     {"name": "pilot", "description": "Ops board, driver brief, pilot CSV bundles."},
-    {"name": "billing", "description": "Stripe checkout + webhooks (optional)."},
+    {"name": "billing", "description": "Stripe checkout, customer portal, and webhooks (optional)."},
+    {"name": "public", "description": "Unauthenticated marketing/meta and demo-request intake."},
+    {"name": "leads", "description": "Founder inbox for landing-page pilot requests."},
 ]
 
 
 app = FastAPI(
     title="TerraIQ Fleet Intelligence API",
-    version="0.2.0",
+    version="0.4.0",
     description=(
-        "Terrain-aware fuel optimization: submit routes (dashboard JWT or public API key), "
-        "poll for results or receive webhooks. See tags for internal vs public `/v1` routes."
+        "Terrain-aware fuel optimization for highway fleets: submit routes (dashboard JWT or "
+        "API key), poll for results or receive webhooks. Trial quotas apply on the free plan; "
+        "paid pilots raise limits. See tags for internal vs public `/v1` routes."
     ),
     lifespan=lifespan,
     docs_url="/docs",
@@ -83,6 +103,7 @@ def custom_openapi():
 app.openapi = custom_openapi
 
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -93,6 +114,8 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(public.router)
+app.include_router(leads.router)
 app.include_router(metrics_route.router)
 app.include_router(auth.router)
 app.include_router(jobs.router)

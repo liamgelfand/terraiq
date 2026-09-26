@@ -140,6 +140,38 @@ def _maybe_finalize_batch(batch_id: str | None) -> None:
     _email_batch_complete(batch_id)
 
 
+def _email_job_finished(job_id: str) -> None:
+    from sqlalchemy import select
+
+    from api.models.job import Job
+    from api.models.user import User
+    from api.services.notifications import notify_job_finished_sync
+
+    with SyncSession() as session:
+        job = session.get(Job, job_id)
+        if not job or not job.fleet_id:
+            return
+        cfg = dict(job.config or {})
+        status = job.status
+        savings = (job.result or {}).get("savings") if job.result else None
+        admins = session.execute(
+            select(User).where(User.fleet_id == job.fleet_id, User.role == "admin")
+        )
+        emails = [u.email for u in admins.scalars().all()]
+    for to in emails:
+        try:
+            notify_job_finished_sync(
+                to_email=to,
+                origin=str(cfg.get("origin") or ""),
+                destination=str(cfg.get("destination") or ""),
+                status=status,
+                savings=savings if isinstance(savings, dict) else None,
+                job_id=job_id,
+            )
+        except Exception:
+            logger.exception("Job-complete email failed job=%s to=%s", job_id, to)
+
+
 def _email_batch_complete(batch_id: str) -> None:
     from sqlalchemy import select
 
@@ -210,6 +242,7 @@ def _set_job_failed(
             session.commit()
     if notify:
         _notify_webhook(job_id)
+        _email_job_finished(job_id)
     _maybe_finalize_batch(batch_id)
 
 
@@ -298,6 +331,7 @@ def run_simulation(self, job_id: str) -> None:
                 session.commit()
 
         _notify_webhook(job_id)
+        _email_job_finished(job_id)
         _maybe_finalize_batch(batch_id)
 
     except _RETRIABLE as exc:
@@ -434,6 +468,7 @@ def run_sweep(self, job_id: str) -> None:
                 session.commit()
 
         _notify_webhook(job_id)
+        _email_job_finished(job_id)
         _maybe_finalize_batch(batch_id)
 
     except _RETRIABLE as exc:

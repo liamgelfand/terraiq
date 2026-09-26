@@ -5,7 +5,7 @@ ERROR_CODE_HELP: dict[str, str] = {
     "SOLVER_FAILED": "The route optimizer could not find a feasible solution for this route or vehicle settings.",
     "ROUTE_FETCH_FAILED": "Could not download street routing data for this corridor.",
     "SIMULATION_FAILED": "The simulation stopped with an unexpected error.",
-    "TRANSPORT_EXHAUSTED": "Temporary infrastructure issue — the job exceeded automatic retries.",
+    "TRANSPORT_EXHAUSTED": "Temporary infrastructure issue. The job exceeded automatic retries.",
 }
 
 

@@ -186,7 +186,7 @@ export function ApiKeys() {
               {keys.map(key => (
                 <tr key={key.id} className="hover:bg-stone-50">
                   <td className="px-4 py-3 font-medium text-stone-800">{key.name}</td>
-                  <td className="px-4 py-3 text-stone-500">{key.fleet_name ?? "—"}</td>
+                  <td className="px-4 py-3 text-stone-500">{key.fleet_name ?? "-"}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <code className="text-xs font-mono text-stone-600 bg-stone-100 px-2 py-0.5 rounded">

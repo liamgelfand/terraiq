@@ -3,6 +3,8 @@ import { useAuth } from "../contexts/AuthContext";
 
 interface RegisterProps {
   onGoLogin: () => void;
+  onGoHome?: () => void;
+  onGoLegal?: (slug: "terms" | "privacy" | "pilot") => void;
 }
 
 interface FieldErrors {
@@ -22,7 +24,7 @@ function extractError(err: unknown): FieldErrors {
   return { general: detail || "Registration failed. Please try again." };
 }
 
-export function Register({ onGoLogin }: RegisterProps) {
+export function Register({ onGoLogin, onGoHome, onGoLegal }: RegisterProps) {
   const { register } = useAuth();
   const [form, setForm] = useState({
     full_name: "",
@@ -30,6 +32,7 @@ export function Register({ onGoLogin }: RegisterProps) {
     password: "",
     fleet_name: "",
   });
+  const [agreed, setAgreed] = useState(false);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [loading, setLoading] = useState(false);
 
@@ -44,6 +47,10 @@ export function Register({ onGoLogin }: RegisterProps) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setErrors({});
+    if (!agreed) {
+      setErrors({ general: "Please accept the Terms and Pilot Agreement to continue." });
+      return;
+    }
     setLoading(true);
     try {
       await register(form.email, form.password, form.full_name, form.fleet_name);
@@ -62,7 +69,12 @@ export function Register({ onGoLogin }: RegisterProps) {
             <img src="/logo.png" alt="TerraIQ" className="h-12 w-auto" />
           </div>
           <h1 className="text-xl font-semibold text-stone-800">Create your account</h1>
-          <p className="text-sm text-stone-500 mt-1">Fleet Intelligence API</p>
+          <p className="text-sm text-stone-500 mt-1">Start a trial for your fleet</p>
+          {onGoHome && (
+            <button type="button" onClick={onGoHome} className="text-xs text-forest-700 mt-2 hover:underline">
+              ← Back to home
+            </button>
+          )}
         </div>
 
         <div className="bg-white border border-stone-200 rounded-xl p-6 shadow-sm">
@@ -137,6 +149,25 @@ export function Register({ onGoLogin }: RegisterProps) {
                 className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-transparent"
               />
             </div>
+            <label className="flex items-start gap-2 text-xs text-stone-600">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+              />
+              <span>
+                I agree to the{" "}
+                <button type="button" className="text-forest-700 underline" onClick={() => onGoLegal?.("terms")}>
+                  Terms
+                </button>{" "}
+                and{" "}
+                <button type="button" className="text-forest-700 underline" onClick={() => onGoLegal?.("pilot")}>
+                  Pilot Agreement
+                </button>
+                .
+              </span>
+            </label>
             <button
               type="submit"
               disabled={loading}

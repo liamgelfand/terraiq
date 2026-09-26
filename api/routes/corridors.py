@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_user, get_db
 from api.models.saved_corridor import SavedCorridor
 from api.schemas.corridors import CorridorCreate, CorridorResponse, CorridorUpdate
+from api.services.plans import assert_can_create_corridor
 
 router = APIRouter(prefix="/api/corridors", tags=["corridors"])
 
@@ -20,7 +21,8 @@ async def create_corridor(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _user, fleet = current_user
+    user, fleet = current_user
+    await assert_can_create_corridor(db, fleet, actor_email=user.email)
     row = SavedCorridor(
         id=str(uuid.uuid4()),
         fleet_id=fleet.id,
@@ -115,7 +117,8 @@ async def duplicate_corridor(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _user, fleet = current_user
+    user, fleet = current_user
+    await assert_can_create_corridor(db, fleet, actor_email=user.email)
     src = await db.get(SavedCorridor, corridor_id)
     if not src or src.fleet_id != fleet.id:
         raise HTTPException(status_code=404, detail="Corridor not found")

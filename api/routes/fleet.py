@@ -31,6 +31,7 @@ from api.schemas.fleet import (
     WebhookDeliveryResponse,
 )
 from api.services.audit import record_audit_event
+from api.services.plans import count_corridors, plan_for_account, remaining_jobs
 
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
 
@@ -158,6 +159,37 @@ async def list_webhook_deliveries(
     )
 
 
+@router.get("/onboarding-status")
+async def onboarding_status(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+) -> dict:
+    """Checklist for first-run fleets: corridors, a completed job, telemetry."""
+    _user, fleet = current_user
+    corridors_n = await count_corridors(db, fleet.id)
+    completed = (
+        await db.execute(
+            select(func.count())
+            .select_from(Job)
+            .where(and_(Job.fleet_id == fleet.id, Job.status == "completed"))
+        )
+    ).scalar_one()
+    telemetry_n = (
+        await db.execute(
+            select(func.count())
+            .select_from(TelemetryUpload)
+            .where(TelemetryUpload.fleet_id == fleet.id)
+        )
+    ).scalar_one()
+    return {
+        "corridors": int(corridors_n),
+        "completed_jobs": int(completed),
+        "telemetry_uploads": int(telemetry_n),
+        "starter_seeded": int(corridors_n) >= 2,
+        "ready_for_brief": int(completed) >= 1,
+    }
+
+
 @router.get("/usage", response_model=FleetUsageResponse)
 async def fleet_usage(
     db: AsyncSession = Depends(get_db),
@@ -196,12 +228,23 @@ async def fleet_usage(
         await db.execute(select(func.coalesce(func.sum(ApiKey.usage_count), 0)).where(ApiKey.fleet_id == fleet.id))
     ).scalar_one()
 
+    plan = plan_for_account(fleet, actor_email=user.email)
+    used_month = int(jobs_this_month)
+    corridors_n = await count_corridors(db, fleet.id)
+
     return FleetUsageResponse(
         jobs_total=int(jobs_total),
         jobs_completed=int(jobs_completed),
         jobs_failed=int(jobs_failed),
-        jobs_this_month=int(jobs_this_month),
+        jobs_this_month=used_month,
         api_key_usage_total=int(key_usage or 0),
+        billing_plan=plan.key,
+        plan_label=plan.label,
+        jobs_limit_monthly=plan.jobs_per_month,
+        jobs_remaining_this_month=remaining_jobs(used_month, plan),
+        corridors_count=corridors_n,
+        corridors_limit=plan.max_corridors,
+        stripe_configured=bool(settings.stripe_secret_key and settings.stripe_price_pilot_monthly),
     )
 
 

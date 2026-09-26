@@ -29,8 +29,21 @@ def test_debug_false_with_default_secret_raises():
 
 
 def test_debug_false_with_custom_secret_passes():
-    s = Settings(debug=False, jwt_secret="a-very-long-custom-secret-for-production")
+    s = Settings(
+        debug=False,
+        jwt_secret="a-very-long-custom-secret-for-production",
+        webhook_signing_secret="a-very-long-custom-webhook-secret",
+    )
     assert s.jwt_secret == "a-very-long-custom-secret-for-production"
+
+
+def test_debug_false_with_default_webhook_secret_raises():
+    with pytest.raises((ValidationError, ValueError)):
+        Settings(
+            debug=False,
+            jwt_secret="a-very-long-custom-secret-for-production",
+            webhook_signing_secret="change-me-webhook-signing-secret",
+        )
 
 
 def test_jwt_expire_days_can_be_overridden():

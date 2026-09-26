@@ -26,3 +26,30 @@ def test_driver_brief_merges_segments():
     brief = build_driver_brief_from_job_result(result, speed_step_kmh=4.0)
     assert brief["segment_count"] >= 1
     assert len(brief["segments"]) >= 1
+    assert "target_speed_mph" in brief["segments"][0]
+
+
+def test_driver_brief_html_contains_print_hook():
+    from api.services.driver_brief import render_driver_brief_html
+
+    html = render_driver_brief_html(
+        route="Denver → Grand Junction",
+        fleet_name="Acme",
+        job_id="abc12345-job",
+        brief={
+            "distance_km": 390,
+            "segments": [
+                {
+                    "start_km": 0,
+                    "end_km": 12,
+                    "target_speed_kmh": 90,
+                    "target_speed_mph": 56,
+                    "summary": "Hold ~90 km/h",
+                }
+            ],
+        },
+        savings={"fuel_saved_liters": 20, "fuel_saved_pct": 8, "cost_saved_usd": 30},
+    )
+    assert "Print" in html
+    assert "Denver" in html
+    assert "56" in html

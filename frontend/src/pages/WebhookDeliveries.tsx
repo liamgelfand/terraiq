@@ -44,7 +44,7 @@ export function WebhookDeliveries() {
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs">{r.job_id.slice(0, 8)}…</td>
                   <td className="py-2 pr-4">{r.attempt}</td>
-                  <td className="py-2 pr-4">{r.http_status ?? "—"}</td>
+                  <td className="py-2 pr-4">{r.http_status ?? "-"}</td>
                   <td className="py-2 pr-4 text-stone-600 truncate max-w-xs" title={r.url}>
                     {r.url}
                   </td>

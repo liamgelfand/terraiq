@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_user, get_db
 from api.models.job import Job
 from api.schemas.job import JobCreate, JobListPage, JobResponse
+from api.services.plans import assert_can_create_jobs
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -24,6 +25,7 @@ async def create_job(
     current_user=Depends(get_current_user),
 ) -> Job:
     user, fleet = current_user
+    await assert_can_create_jobs(db, fleet, 1, actor_email=user.email)
     if body.corridor_id:
         from api.models.saved_corridor import SavedCorridor  # noqa: PLC0415
 

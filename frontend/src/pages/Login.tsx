@@ -4,9 +4,10 @@ import { useAuth } from "../contexts/AuthContext";
 interface LoginProps {
   onGoRegister: () => void;
   onForgotPassword: () => void;
+  onGoHome?: () => void;
 }
 
-export function Login({ onGoRegister, onForgotPassword }: LoginProps) {
+export function Login({ onGoRegister, onForgotPassword, onGoHome }: LoginProps) {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,7 +39,12 @@ export function Login({ onGoRegister, onForgotPassword }: LoginProps) {
             <img src="/logo.png" alt="TerraIQ" className="h-12 w-auto" />
           </div>
           <h1 className="text-xl font-semibold text-stone-800">Sign in to TerraIQ</h1>
-          <p className="text-sm text-stone-500 mt-1">Fleet Intelligence API</p>
+          <p className="text-sm text-stone-500 mt-1">Fleet intelligence for highway grades</p>
+          {onGoHome && (
+            <button type="button" onClick={onGoHome} className="text-xs text-forest-700 mt-2 hover:underline">
+              ← Back to home
+            </button>
+          )}
         </div>
 
         <div className="bg-white border border-stone-200 rounded-xl p-6 shadow-sm">

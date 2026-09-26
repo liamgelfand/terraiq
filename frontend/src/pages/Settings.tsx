@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "../contexts/AuthContext";
-import { changePassword, createFleetInvite, downloadPilotPackageCsv, fetchFleetDataExport, purgeFleetData, startBillingCheckout, updateFleetName, updateProfile } from "../api/client";
+import { changePassword, createFleetInvite, downloadPilotPackageCsv, fetchFleetDataExport, fetchFleetUsage, purgeFleetData, startBillingCheckout, startBillingPortal, updateFleetName, updateProfile } from "../api/client";
+import { extractApiError } from "../lib/errors";
 
 export function Settings() {
   const { user, refreshUser } = useAuth();
@@ -28,7 +29,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -41,7 +42,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -58,7 +59,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -71,7 +72,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -90,7 +91,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -102,7 +103,7 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
 
@@ -113,9 +114,22 @@ export function Settings() {
     },
     onError: (e: unknown) => {
       setMessage(null);
-      setError(extractError(e));
+      setError(extractApiError(e));
     },
   });
+
+  const portalMut = useMutation({
+    mutationFn: () => startBillingPortal(),
+    onSuccess: (data) => {
+      if (data.url) window.location.href = data.url;
+    },
+    onError: (e: unknown) => {
+      setMessage(null);
+      setError(extractApiError(e));
+    },
+  });
+
+  const { data: usage } = useQuery({ queryKey: ["fleet-usage"], queryFn: fetchFleetUsage });
 
   if (!user) {
     return null;
@@ -255,6 +269,17 @@ export function Settings() {
       {isAdmin && (
         <div className="card p-5 space-y-4">
           <h3 className="text-sm font-semibold text-stone-800">Pilot data &amp; billing</h3>
+          {usage && (
+            <p className="text-sm text-stone-700">
+              Plan: <span className="font-medium">{usage.plan_label}</span>
+              {usage.jobs_limit_monthly != null && usage.jobs_remaining_this_month != null && (
+                <> · {usage.jobs_this_month}/{usage.jobs_limit_monthly} jobs this month</>
+              )}
+              {usage.corridors_limit != null && (
+                <> · {usage.corridors_count}/{usage.corridors_limit} corridors</>
+              )}
+            </p>
+          )}
           <p className="text-xs text-stone-500">
             Export JSON metadata (no raw GPS points). Purge removes corridors, batches, and telemetry;
             optionally all jobs. Stripe checkout requires server env configuration.
@@ -282,6 +307,14 @@ export function Settings() {
               onClick={() => billingMut.mutate()}
             >
               {billingMut.isPending ? "Redirecting…" : "Stripe checkout"}
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 text-sm border border-stone-300 rounded-md hover:bg-stone-50"
+              disabled={portalMut.isPending}
+              onClick={() => portalMut.mutate()}
+            >
+              {portalMut.isPending ? "Opening…" : "Manage subscription"}
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -372,16 +405,4 @@ export function Settings() {
       </div>
     </div>
   );
-}
-
-function extractError(e: unknown): string {
-  if (typeof e === "object" && e !== null && "response" in e) {
-    const resp = (e as { response?: { data?: { detail?: string | unknown } } }).response;
-    const detail = resp?.data?.detail;
-    if (typeof detail === "string") return detail;
-    if (Array.isArray(detail)) {
-      return detail.map((d) => (typeof d === "object" && d && "msg" in d ? String((d as { msg: string }).msg) : String(d))).join("; ");
-    }
-  }
-  return "Something went wrong. Try again.";
 }

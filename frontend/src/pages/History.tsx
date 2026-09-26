@@ -7,7 +7,7 @@ import { RouteMap } from "../components/map/RouteMap";
 import { ChartsPanel } from "../components/ChartsPanel";
 import { SweepChart } from "../components/charts/SweepChart";
 
-function JobRow({ job }: { job: Job }) {
+function JobRow({ job, onOpenBrief }: { job: Job; onOpenBrief?: (jobId: string) => void }) {
   const [open, setOpen] = useState(false);
   const isSweep = job.config.job_type === "sweep" || !!(job.result?.curve);
   const hasSweepResult = isSweep && job.status === "completed" && !!job.result?.curve;
@@ -119,6 +119,15 @@ function JobRow({ job }: { job: Job }) {
           <div className="h-64">
             <ChartsPanel result={job.result!} />
           </div>
+          {onOpenBrief && (
+            <button
+              type="button"
+              className="btn-secondary text-sm"
+              onClick={() => onOpenBrief(job.id)}
+            >
+              Print driver brief
+            </button>
+          )}
         </div>
       )}
 
@@ -135,7 +144,7 @@ function JobRow({ job }: { job: Job }) {
   );
 }
 
-export function History() {
+export function History({ onOpenBrief }: { onOpenBrief?: (jobId: string) => void }) {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState<string>("");
@@ -234,7 +243,7 @@ export function History() {
       ) : (
         <div className="space-y-3">
           {jobs.map((job) => (
-            <JobRow key={job.id} job={job} />
+            <JobRow key={job.id} job={job} onOpenBrief={onOpenBrief} />
           ))}
         </div>
       )}

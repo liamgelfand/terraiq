@@ -65,6 +65,25 @@ async def require_fleet_admin(
     return user, fleet
 
 
+def is_founder_email(email: str) -> bool:
+    from api.config import settings  # noqa: PLC0415
+
+    candidates = {
+        (settings.founding_admin_email or "").strip().lower(),
+        (settings.demo_request_email or "").strip().lower(),
+    }
+    candidates.discard("")
+    return email.strip().lower() in candidates
+
+
+async def require_founder(current_user=Depends(get_current_user)):
+    """Founder-only inbox (leads). Configured via FOUNDING_ADMIN_EMAIL or DEMO_REQUEST_EMAIL."""
+    user, fleet = current_user
+    if not is_founder_email(user.email):
+        raise HTTPException(status_code=403, detail="Founder access required")
+    return user, fleet
+
+
 async def require_api_key(
     x_api_key: str = Header(alias="X-API-Key"),
     db: AsyncSession = Depends(get_db),
@@ -84,3 +103,13 @@ async def require_api_key(
     api_key.last_used_at = datetime.now(timezone.utc)
     await db.commit()
     return api_key
+
+
+async def fleet_for_api_key(api_key=Depends(require_api_key), db: AsyncSession = Depends(get_db)):
+    """Validate an API key and return (ApiKey, Fleet)."""
+    from api.models.fleet import Fleet  # noqa: PLC0415
+
+    fleet = await db.get(Fleet, api_key.fleet_id)
+    if not fleet:
+        raise HTTPException(status_code=401, detail="Fleet not found for this API key")
+    return api_key, fleet

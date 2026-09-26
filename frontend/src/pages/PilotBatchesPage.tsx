@@ -49,7 +49,7 @@ export function PilotBatchesPage() {
                   onChange={() => toggle(c.id)}
                 />
                 <span>
-                  {c.name} — {c.origin} → {c.destination}
+                  {c.name} - {c.origin} → {c.destination}
                 </span>
               </label>
             </li>

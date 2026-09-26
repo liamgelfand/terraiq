@@ -48,6 +48,13 @@ class FleetUsageResponse(BaseModel):
     jobs_failed: int
     jobs_this_month: int
     api_key_usage_total: int
+    billing_plan: str
+    plan_label: str
+    jobs_limit_monthly: int | None
+    jobs_remaining_this_month: int | None
+    corridors_count: int
+    corridors_limit: int | None
+    stripe_configured: bool
 
 
 class AuditLogPage(BaseModel):

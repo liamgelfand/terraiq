@@ -24,6 +24,7 @@ export interface CurrentUser {
   fleet_name: string;
   role: "admin" | "member";
   onboarding_completed: boolean;
+  is_founder?: boolean;
 }
 
 export interface TokenResponse {
@@ -122,6 +123,13 @@ export interface FleetUsage {
   jobs_failed: number;
   jobs_this_month: number;
   api_key_usage_total: number;
+  billing_plan: string;
+  plan_label: string;
+  jobs_limit_monthly: number | null;
+  jobs_remaining_this_month: number | null;
+  corridors_count: number;
+  corridors_limit: number | null;
+  stripe_configured: boolean;
 }
 
 export interface AuditEventRow {
@@ -331,6 +339,47 @@ export async function listVehicles(): Promise<Vehicle[]> {
 export async function fetchFleetUsage(): Promise<FleetUsage> {
   const { data } = await apiClient.get<FleetUsage>("/api/fleet/usage");
   return data;
+}
+
+export interface OnboardingStatus {
+  corridors: number;
+  completed_jobs: number;
+  telemetry_uploads: number;
+  starter_seeded: boolean;
+  ready_for_brief: boolean;
+}
+
+export async function fetchOnboardingStatus(): Promise<OnboardingStatus> {
+  const { data } = await apiClient.get<OnboardingStatus>("/api/fleet/onboarding-status");
+  return data;
+}
+
+export interface LeadRow {
+  id: string;
+  name: string;
+  email: string;
+  company: string;
+  fleet_size: string | null;
+  message: string | null;
+  source: string;
+  status: string;
+  created_at: string;
+}
+
+export async function fetchLeads(): Promise<LeadRow[]> {
+  const { data } = await apiClient.get<LeadRow[]>("/api/leads");
+  return data;
+}
+
+export async function updateLeadStatus(id: string, status: string): Promise<LeadRow> {
+  const { data } = await apiClient.patch<LeadRow>(`/api/leads/${id}`, { status });
+  return data;
+}
+
+export async function openAnalyticsReport(): Promise<void> {
+  const { data } = await apiClient.get<Blob>("/api/analytics/report.html", { responseType: "blob" });
+  const url = URL.createObjectURL(data);
+  window.open(url, "_blank", "noopener");
 }
 
 export async function createFleetInvite(email: string): Promise<void> {
@@ -555,5 +604,51 @@ export async function purgeFleetData(includeJobs: boolean): Promise<void> {
 
 export async function startBillingCheckout(): Promise<{ url: string }> {
   const { data } = await apiClient.post<{ url: string }>("/api/billing/checkout-session");
+  return data;
+}
+
+export async function startBillingPortal(): Promise<{ url: string }> {
+  const { data } = await apiClient.post<{ url: string }>("/api/billing/portal-session");
+  return data;
+}
+
+export interface DriverBriefPayload {
+  job_id: string;
+  route: string;
+  origin?: string;
+  destination?: string;
+  vehicle_id?: string | null;
+  fleet_name: string;
+  savings?: {
+    fuel_saved_liters?: number;
+    fuel_saved_pct?: number;
+    cost_saved_usd?: number;
+  };
+  brief: {
+    segments: Array<{
+      start_km: number;
+      end_km: number;
+      target_speed_kmh: number;
+      target_speed_mph?: number;
+      summary: string;
+    }>;
+    distance_km?: number;
+    segment_count?: number;
+  };
+}
+
+export async function fetchDriverBrief(jobId: string): Promise<DriverBriefPayload> {
+  const { data } = await apiClient.get<DriverBriefPayload>(`/api/pilot/jobs/${jobId}/driver-brief`);
+  return data;
+}
+
+export async function submitDemoRequest(body: {
+  name: string;
+  email: string;
+  company: string;
+  fleet_size?: string;
+  message?: string;
+}): Promise<{ ok: boolean }> {
+  const { data } = await apiClient.post<{ ok: boolean }>("/api/public/demo-request", body);
   return data;
 }

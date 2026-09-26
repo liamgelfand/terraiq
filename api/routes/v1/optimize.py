@@ -9,9 +9,10 @@ from pydantic import AnyHttpUrl, BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_db, require_api_key
+from api.deps import fleet_for_api_key, get_db, require_api_key
 from api.models.job import Job
 from api.ratelimit import check_rate_limit
+from api.services.plans import assert_can_create_jobs
 
 router = APIRouter(prefix="/v1/optimize", tags=["v1"])
 
@@ -174,7 +175,7 @@ def _format_response(job: Job, simplified: bool = False) -> OptimizeResponse:
 async def submit_optimization(
     body: OptimizeRequest,
     db: AsyncSession = Depends(get_db),
-    api_key=Depends(require_api_key),
+    auth=Depends(fleet_for_api_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> Any:
     """
@@ -182,6 +183,7 @@ async def submit_optimization(
     the same logical request (returns the original job). Optional **webhook_url** receives
     `job.completed` / `job.failed` with HMAC signature.
     """
+    api_key, fleet = auth
     await check_rate_limit(api_key.id)
 
     key = (idempotency_key or "").strip()[:128]
@@ -192,6 +194,8 @@ async def submit_optimization(
         existing = result.scalar_one_or_none()
         if existing:
             return _format_response(existing, simplified=body.simplified)
+
+    await assert_can_create_jobs(db, fleet, 1)
 
     wh = str(body.webhook_url) if body.webhook_url else None
     config: dict = {
@@ -227,9 +231,11 @@ async def submit_optimization(
 async def submit_optimization_batch(
     body: BatchOptimizeRequest,
     db: AsyncSession = Depends(get_db),
-    api_key=Depends(require_api_key),
+    auth=Depends(fleet_for_api_key),
 ) -> Any:
     """Submit up to 25 independent optimize jobs in one request (each is rate-limited)."""
+    api_key, fleet = auth
+    await assert_can_create_jobs(db, fleet, len(body.items))
     rows: list[BatchOptimizeRow] = []
     for item in body.items:
         await check_rate_limit(api_key.id)

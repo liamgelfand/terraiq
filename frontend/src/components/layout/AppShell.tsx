@@ -1,14 +1,17 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
+import { updateOnboarding } from "../../api/client";
+import { OnboardingChecklist } from "../OnboardingChecklist";
+import { PlanBanner } from "../PlanBanner";
 import { ForgotPassword } from "../../pages/ForgotPassword";
+import { Landing } from "../../pages/Landing";
+import { LegalPage } from "../../pages/LegalPage";
 import { Login } from "../../pages/Login";
 import { Register } from "../../pages/Register";
 import { ResetPassword } from "../../pages/ResetPassword";
 import { AcceptInvite } from "../../pages/AcceptInvite";
 import { Sidebar } from "./Sidebar";
 
-// Heavy pages are lazy-loaded so their JS chunks are fetched only on first visit.
-// Auth pages are kept eager since they're shown before any navigation occurs.
 const Dashboard = lazy(() => import("../../pages/Dashboard").then((m) => ({ default: m.Dashboard })));
 const CorridorsPage = lazy(() => import("../../pages/CorridorsPage").then((m) => ({ default: m.CorridorsPage })));
 const PilotBatchesPage = lazy(() => import("../../pages/PilotBatchesPage").then((m) => ({ default: m.PilotBatchesPage })));
@@ -22,17 +25,43 @@ const AuditLog = lazy(() => import("../../pages/AuditLog").then((m) => ({ defaul
 const WebhookDeliveries = lazy(() =>
   import("../../pages/WebhookDeliveries").then((m) => ({ default: m.WebhookDeliveries }))
 );
+const DriverBriefPage = lazy(() =>
+  import("../../pages/DriverBriefPage").then((m) => ({ default: m.DriverBriefPage }))
+);
+const LeadsPage = lazy(() => import("../../pages/LeadsPage").then((m) => ({ default: m.LeadsPage })));
 
-type AuthScreen = "login" | "register" | "forgot";
+type AuthScreen = "landing" | "login" | "register" | "forgot";
+type LegalSlug = "terms" | "privacy" | "pilot";
 
 function getInviteToken(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("invite_token");
+  return new URLSearchParams(window.location.search).get("invite_token");
 }
 
 function getResetToken(): string | null {
+  return new URLSearchParams(window.location.search).get("reset_token");
+}
+
+function readAuthScreen(): AuthScreen {
+  const auth = new URLSearchParams(window.location.search).get("auth");
+  if (auth === "login" || auth === "register" || auth === "forgot") return auth;
+  return "landing";
+}
+
+function readLegal(): LegalSlug | null {
+  const legal = new URLSearchParams(window.location.search).get("legal");
+  if (legal === "terms" || legal === "privacy" || legal === "pilot") return legal;
+  return null;
+}
+
+function readBriefJobId(): string | null {
   const params = new URLSearchParams(window.location.search);
-  return params.get("reset_token");
+  if (params.get("page") === "brief") return params.get("job");
+  return null;
+}
+
+function pushQuery(next: URLSearchParams) {
+  const qs = next.toString();
+  window.history.pushState({}, "", qs ? `/?${qs}` : "/");
 }
 
 function PageFallback() {
@@ -44,12 +73,49 @@ function PageFallback() {
 }
 
 export function AppShell() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, refreshUser } = useAuth();
   const [page, setPage] = useState("dashboard");
-  const [authScreen, setAuthScreen] = useState<AuthScreen>("login");
+  const [authScreen, setAuthScreen] = useState<AuthScreen>(readAuthScreen);
+  const [legal, setLegal] = useState<LegalSlug | null>(readLegal);
+  const [briefJobId, setBriefJobId] = useState<string | null>(readBriefJobId);
 
-  const resetToken = getResetToken();
-  const inviteToken = getInviteToken();
+  useEffect(() => {
+    const onPop = () => {
+      setAuthScreen(readAuthScreen());
+      setLegal(readLegal());
+      setBriefJobId(readBriefJobId());
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function goPublic(screen: AuthScreen, legalSlug: LegalSlug | null = null) {
+    const params = new URLSearchParams();
+    if (legalSlug) params.set("legal", legalSlug);
+    else if (screen !== "landing") params.set("auth", screen);
+    pushQuery(params);
+    setLegal(legalSlug);
+    setAuthScreen(screen);
+  }
+
+  function openBrief(jobId: string) {
+    const params = new URLSearchParams();
+    params.set("page", "brief");
+    params.set("job", jobId);
+    pushQuery(params);
+    setBriefJobId(jobId);
+  }
+
+  function closeBrief() {
+    pushQuery(new URLSearchParams());
+    setBriefJobId(null);
+    setPage("ops");
+  }
+
+  function navigateApp(next: string) {
+    setBriefJobId(null);
+    setPage(next);
+  }
 
   if (isLoading) {
     return (
@@ -59,11 +125,14 @@ export function AppShell() {
     );
   }
 
+  const resetToken = getResetToken();
+  const inviteToken = getInviteToken();
+
   if (resetToken) {
     return (
       <ResetPassword
         token={resetToken}
-        onGoLogin={() => setAuthScreen("login")}
+        onGoLogin={() => goPublic("login")}
       />
     );
   }
@@ -73,37 +142,87 @@ export function AppShell() {
   }
 
   if (!user) {
+    if (legal) {
+      return (
+        <LegalPage
+          slug={legal}
+          onHome={() => goPublic("landing")}
+          onSignIn={() => goPublic("login")}
+        />
+      );
+    }
     if (authScreen === "register") {
-      return <Register onGoLogin={() => setAuthScreen("login")} />;
+      return (
+        <Register
+          onGoLogin={() => goPublic("login")}
+          onGoHome={() => goPublic("landing")}
+          onGoLegal={(slug) => goPublic("landing", slug)}
+        />
+      );
     }
     if (authScreen === "forgot") {
-      return <ForgotPassword onGoLogin={() => setAuthScreen("login")} />;
+      return <ForgotPassword onGoLogin={() => goPublic("login")} />;
+    }
+    if (authScreen === "login") {
+      return (
+        <Login
+          onGoRegister={() => goPublic("register")}
+          onForgotPassword={() => goPublic("forgot")}
+          onGoHome={() => goPublic("landing")}
+        />
+      );
     }
     return (
-      <Login
-        onGoRegister={() => setAuthScreen("register")}
-        onForgotPassword={() => setAuthScreen("forgot")}
+      <Landing
+        onSignIn={() => goPublic("login")}
+        onRegister={() => goPublic("register")}
+        onLegal={(slug) => goPublic("landing", slug)}
       />
+    );
+  }
+
+  if (briefJobId) {
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <DriverBriefPage jobId={briefJobId} onBack={closeBrief} />
+      </Suspense>
     );
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-stone-50">
-      <Sidebar page={page} onNavigate={setPage} isAdmin={user.role === "admin"} />
-      <main className="flex-1 overflow-auto">
-        <Suspense fallback={<PageFallback />}>
-          {page === "dashboard" && <Dashboard />}
-          {page === "corridors" && <CorridorsPage />}
-          {page === "batches" && <PilotBatchesPage />}
-          {page === "telemetry" && <TelemetryPage />}
-          {page === "ops" && <OpsBoardPage />}
-          {page === "history"   && <History />}
-          {page === "analytics" && <Analytics />}
-          {page === "api-keys"  && <ApiKeys />}
-          {page === "settings" && <SettingsPage />}
-          {page === "audit" && <AuditLog />}
-          {page === "webhooks" && <WebhookDeliveries />}
-        </Suspense>
+      <Sidebar
+        page={page}
+        onNavigate={navigateApp}
+        isAdmin={user.role === "admin"}
+        isFounder={!!user.is_founder}
+      />
+      <main className="flex-1 overflow-auto flex flex-col">
+        <OnboardingChecklist
+          onGoCorridors={() => navigateApp("corridors")}
+          onGoOps={() => navigateApp("ops")}
+          onGoTelemetry={() => navigateApp("telemetry")}
+          onDismiss={() => {
+            void updateOnboarding(true).then(() => refreshUser());
+          }}
+        />
+        <PlanBanner onOpenSettings={() => navigateApp("settings")} />
+        <div className="flex-1 overflow-auto">
+          <Suspense fallback={<PageFallback />}>
+            {page === "dashboard" && <Dashboard />}
+            {page === "corridors" && <CorridorsPage />}
+            {page === "batches" && <PilotBatchesPage />}
+            {page === "telemetry" && <TelemetryPage />}
+            {page === "ops" && <OpsBoardPage onOpenBrief={openBrief} />}
+            {page === "history"   && <History onOpenBrief={openBrief} />}
+            {page === "analytics" && <Analytics />}
+            {page === "api-keys"  && <ApiKeys />}
+            {page === "settings" && <SettingsPage />}
+            {page === "audit" && <AuditLog />}
+            {page === "webhooks" && <WebhookDeliveries />}
+            {page === "leads" && user.is_founder && <LeadsPage />}
+          </Suspense>
+        </div>
       </main>
     </div>
   );

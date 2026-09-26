@@ -61,3 +61,10 @@
   @apply rounded-lg;
   font-family: "Inter", system-ui, sans-serif;
 }
+
+@media print {
+  aside,
+  .print\:hidden {
+    display: none !important;
+  }
+}

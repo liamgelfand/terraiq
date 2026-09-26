@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fetchAnalytics, fetchKeys, listJobs } from "../api/client";
+import { fetchAnalytics, fetchKeys, listJobs, openAnalyticsReport } from "../api/client";
 import { JobStatusBadge } from "../components/JobStatusBadge";
 
 function StatCard({
@@ -71,11 +71,16 @@ export function Analytics() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-stone-800">Fleet Analytics</h2>
-        <p className="text-sm text-stone-500 mt-0.5">
-          Aggregate savings across all optimizations for your fleet.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-stone-800">Fleet Analytics</h2>
+          <p className="text-sm text-stone-500 mt-0.5">
+            Simulated totals vs baseline. Print this pack for a pilot conversation, not a guarantee.
+          </p>
+        </div>
+        <button type="button" className="btn-secondary text-sm" onClick={() => void openAnalyticsReport()}>
+          Print savings report
+        </button>
       </div>
 
       {/* KPI grid */}
@@ -110,7 +115,7 @@ export function Analytics() {
           value={
             analytics && analytics.completed_jobs > 0
               ? `$${(analytics.total_cost_saved_usd / analytics.completed_jobs).toFixed(2)}`
-              : "$—"
+              : "$-"
           }
           sub="per completed optimization"
         />
@@ -185,12 +190,12 @@ export function Analytics() {
                   <td className="px-5 py-3 text-right text-stone-600">
                     {job.result
                       ? `${job.result.savings.fuel_saved_liters.toFixed(1)} L`
-                      : "—"}
+                      : "-"}
                   </td>
                   <td className="px-5 py-3 text-right text-stone-600">
                     {job.result
                       ? `$${job.result.savings.cost_saved_usd.toFixed(2)}`
-                      : "—"}
+                      : "-"}
                   </td>
                   <td className="px-5 py-3 text-right text-stone-400 text-xs">
                     {new Date(job.created_at).toLocaleDateString()}

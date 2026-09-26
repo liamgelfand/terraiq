@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     fleet_name: str
     role: str = "member"
     onboarding_completed: bool = True
+    is_founder: bool = False
 
 
 class OnboardingRequest(BaseModel):

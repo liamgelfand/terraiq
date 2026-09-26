@@ -36,6 +36,7 @@ describe("Register", () => {
     await userEvent.type(screen.getByPlaceholderText(/acme logistics/i), "Acme Fleet");
     await userEvent.type(screen.getByPlaceholderText(/you@fleet\.com/i), "jane@acme.com");
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), "password123");
+    await userEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() =>
@@ -58,6 +59,7 @@ describe("Register", () => {
     await userEvent.type(screen.getByPlaceholderText(/acme logistics/i), "Y");
     await userEvent.type(screen.getByPlaceholderText(/you@fleet\.com/i), "dup@x.com");
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), "password123");
+    await userEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() =>
@@ -75,12 +77,24 @@ describe("Register", () => {
     await userEvent.type(screen.getByPlaceholderText(/acme logistics/i), "Y");
     await userEvent.type(screen.getByPlaceholderText(/you@fleet\.com/i), "dup@x.com");
     await userEvent.type(screen.getByPlaceholderText(/••••••••/), "password123");
+    await userEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() => screen.getByText(/already exists/i));
 
     await userEvent.type(screen.getByPlaceholderText(/you@fleet\.com/i), "a");
     expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument();
+  });
+
+  it("blocks submit until terms are accepted", async () => {
+    renderRegister();
+    await userEvent.type(screen.getByPlaceholderText(/alex johnson/i), "Jane Doe");
+    await userEvent.type(screen.getByPlaceholderText(/acme logistics/i), "Acme Fleet");
+    await userEvent.type(screen.getByPlaceholderText(/you@fleet\.com/i), "jane@acme.com");
+    await userEvent.type(screen.getByPlaceholderText(/••••••••/), "password123");
+    fireEvent.click(screen.getByRole("button", { name: /create account/i }));
+    expect(mockRegister).not.toHaveBeenCalled();
+    expect(screen.getByText(/accept the terms/i)).toBeInTheDocument();
   });
 
   it("calls onGoLogin when 'Sign in' is clicked", async () => {

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, TrendingUp } from "lucide-react";
-import { fetchFleetUsage, updateOnboarding } from "../api/client";
+import { fetchFleetUsage } from "../api/client";
+import { extractApiError } from "../lib/errors";
 import { RouteForm } from "../components/RouteForm";
 import { MetricsBar } from "../components/MetricsBar";
 import { RouteMap } from "../components/map/RouteMap";
@@ -10,12 +11,10 @@ import { SweepChart } from "../components/charts/SweepChart";
 import { JobStatusBadge } from "../components/JobStatusBadge";
 import { useSubmitJob, useJob, useSubmitSweep } from "../hooks/useJob";
 import type { JobConfig } from "../api/client";
-import { useAuth } from "../contexts/AuthContext";
 
 type Mode = "optimize" | "sweep";
 
 export function Dashboard() {
-  const { user, refreshUser } = useAuth();
   const [mode, setMode] = useState<Mode>("optimize");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeSweepId, setActiveSweepId] = useState<string | null>(null);
@@ -66,23 +65,8 @@ export function Dashboard() {
   const activeJob = mode === "sweep" ? sweepJob : job;
   const isLoading = mode === "sweep" ? isSweeping : isOptimizing;
 
-  async function dismissOnboarding() {
-    await updateOnboarding(true);
-    await refreshUser();
-  }
-
   return (
     <div className="flex flex-col h-full">
-      {user && !user.onboarding_completed && (
-        <div className="bg-forest-50 border-b border-forest-200 px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-forest-900">
-            Welcome — choose Optimize or Sweep on the left, then run a route.
-          </p>
-          <button type="button" className="btn-secondary text-xs" onClick={() => void dismissOnboarding()}>
-            Dismiss
-          </button>
-        </div>
-      )}
       {usage && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 px-6 py-3 border-b border-stone-200 bg-white text-sm">
           <div>
@@ -91,7 +75,11 @@ export function Dashboard() {
           </div>
           <div>
             <p className="text-xs text-stone-500 uppercase tracking-wide">This month</p>
-            <p className="font-semibold text-stone-800">{usage.jobs_this_month}</p>
+            <p className="font-semibold text-stone-800">
+              {usage.jobs_this_month}
+              {usage.jobs_limit_monthly != null ? ` / ${usage.jobs_limit_monthly}` : ""}
+            </p>
+            <p className="text-[11px] text-stone-500">{usage.plan_label} plan</p>
           </div>
           <div>
             <p className="text-xs text-stone-500 uppercase tracking-wide">Completed</p>
@@ -163,6 +151,15 @@ export function Dashboard() {
               />
             )}
 
+            {(submitMutation.isError || sweepMutation.isError) && (
+              <div className="mt-4 p-3 rounded-md bg-red-50 border border-red-200 flex gap-2">
+                <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">
+                  {extractApiError(submitMutation.error ?? sweepMutation.error, "Could not start this job.")}
+                </p>
+              </div>
+            )}
+
             {/* Error */}
             {activeJob?.status === "failed" && activeJob.error_message && (
               <div className="mt-4 p-3 rounded-md bg-red-50 border border-red-200 flex gap-2">
@@ -201,7 +198,7 @@ export function Dashboard() {
             hasSweepResults ? (
               <div className="flex-1 bg-white border border-stone-200 rounded-lg p-5 overflow-auto">
                 <h2 className="text-sm font-semibold text-stone-800 mb-4">
-                  Pareto Frontier — Cost Savings vs. Extra Time
+                  Pareto Frontier: Cost Savings vs. Extra Time
                 </h2>
                 <SweepChart
                   curve={sweepJob!.result!.curve!}

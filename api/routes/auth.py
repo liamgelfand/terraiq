@@ -12,13 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import create_access_token, hash_password, verify_password
 from api.config import settings
-from api.deps import get_current_user, get_db, require_fleet_admin
+from api.deps import get_current_user, get_db, is_founder_email, require_fleet_admin
 from api.emailer import send_email
 from api.models.fleet import Fleet
 from api.models.fleet_invite import FleetInvite
 from api.models.password_reset import PasswordResetToken
 from api.models.user import User
 from api.services.audit import record_audit_event
+from api.services.notifications import send_welcome_email
+from api.services.onboarding import seed_starter_corridors
+from api.services.plans import apply_founder_plan
 from api.schemas.auth import (
     AcceptInviteRequest,
     ChangePasswordRequest,
@@ -39,6 +42,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _user_payload(user: User, fleet: Fleet | None) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "fleet_id": user.fleet_id,
+        "fleet_name": fleet.name if fleet else "",
+        "role": user.role,
+        "onboarding_completed": user.onboarding_completed,
+        "is_founder": is_founder_email(user.email),
+    }
+
+
 @router.post("/register", response_model=TokenResponse, status_code=201)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> dict:
     existing = await db.execute(select(User).where(User.email == body.email))
@@ -46,6 +62,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
         raise HTTPException(status_code=409, detail="Email already registered")
 
     fleet = Fleet(name=body.fleet_name)
+    apply_founder_plan(fleet, body.email)
     db.add(fleet)
     await db.flush()  # populate fleet.id before using it
 
@@ -58,8 +75,14 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
         onboarding_completed=False,
     )
     db.add(user)
+    await seed_starter_corridors(db, fleet.id)
     await db.commit()
     await db.refresh(user)
+
+    try:
+        await send_welcome_email(user.email, user.full_name, fleet.name)
+    except Exception:
+        logger.exception("Welcome email failed for %s", user.email)
 
     token = create_access_token(user.id, user.fleet_id)
     return {"access_token": token, "token_type": "bearer"}
@@ -72,6 +95,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> dict:
 
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    fleet = await db.get(Fleet, user.fleet_id)
+    if fleet:
+        apply_founder_plan(fleet, user.email)
+        await db.commit()
 
     token = create_access_token(user.id, user.fleet_id)
     return {"access_token": token, "token_type": "bearer"}
@@ -101,7 +129,7 @@ async def accept_invite(body: AcceptInviteRequest, db: AsyncSession = Depends(ge
     email_norm = inv.email
     taken = await db.execute(select(User).where(User.email == email_norm))
     if taken.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email already registered — sign in instead")
+        raise HTTPException(status_code=409, detail="Email already registered. Sign in instead")
 
     user = User(
         email=email_norm,
@@ -125,15 +153,7 @@ async def me(
     current_user: tuple[User, Fleet] = Depends(get_current_user),
 ) -> dict:
     user, fleet = current_user
-    return {
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "fleet_id": user.fleet_id,
-        "fleet_name": fleet.name,
-        "role": user.role,
-        "onboarding_completed": user.onboarding_completed,
-    }
+    return _user_payload(user, fleet)
 
 
 @router.post("/forgot-password", status_code=200)
@@ -228,15 +248,7 @@ async def update_profile(
     await db.commit()
     await db.refresh(u)
     f = await db.get(Fleet, u.fleet_id)
-    return {
-        "id": u.id,
-        "email": u.email,
-        "full_name": u.full_name,
-        "fleet_id": u.fleet_id,
-        "fleet_name": f.name if f else "",
-        "role": u.role,
-        "onboarding_completed": u.onboarding_completed,
-    }
+    return _user_payload(u, f)
 
 
 @router.patch("/fleet", response_model=UserResponse)
@@ -263,15 +275,7 @@ async def update_fleet_name(
         resource_id=fleet.id,
         details={"from": old_name, "to": body.fleet_name},
     )
-    return {
-        "id": u.id,
-        "email": u.email,
-        "full_name": u.full_name,
-        "fleet_id": u.fleet_id,
-        "fleet_name": f.name,
-        "role": u.role,
-        "onboarding_completed": u.onboarding_completed,
-    }
+    return _user_payload(u, f)
 
 
 @router.post("/change-password", status_code=200)
@@ -305,12 +309,4 @@ async def update_onboarding(
     await db.commit()
     await db.refresh(u)
     f = await db.get(Fleet, u.fleet_id)
-    return {
-        "id": u.id,
-        "email": u.email,
-        "full_name": u.full_name,
-        "fleet_id": u.fleet_id,
-        "fleet_name": f.name if f else "",
-        "role": u.role,
-        "onboarding_completed": u.onboarding_completed,
-    }
+    return _user_payload(u, f)

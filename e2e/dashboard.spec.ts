@@ -11,12 +11,12 @@ function uniqueEmail() {
 
 async function registerAndLogin(page: Page) {
   const email = uniqueEmail();
-  await page.goto("/");
-  await page.getByRole("button", { name: /create one/i }).click();
+  await page.goto("/?auth=register");
   await page.getByPlaceholder(/alex johnson/i).fill("Dashboard User");
   await page.getByPlaceholder(/acme logistics/i).fill("Dashboard Fleet");
   await page.getByPlaceholder(/you@fleet\.com/i).fill(email);
   await page.getByPlaceholder(/••••••••/).fill("securepass");
+  await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: /create account/i }).click();
   await expect(page.getByText(/run simulation/i)).toBeVisible({ timeout: 10_000 });
 }

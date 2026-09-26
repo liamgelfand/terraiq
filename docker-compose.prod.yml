@@ -1,0 +1,110 @@
+# Production-style stack for a paid pilot (no bind-mounts, no --reload).
+# Copy .env.example → .env and set DEBUG=false plus real secrets before starting.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# SPA is served on :80 and proxies /api /v1 /auth to the backend.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://terraiq:${POSTGRES_PASSWORD:-terraiq}@postgres:5432/terraiq
+      DATABASE_URL_SYNC: postgresql+psycopg2://terraiq:${POSTGRES_PASSWORD:-terraiq}@postgres:5432/terraiq
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DEBUG: "false"
+      DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-pilot}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 40s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    command: celery -A api.workers.celery_app worker --loglevel=info -Q optimize,sweep,webhooks
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://terraiq:${POSTGRES_PASSWORD:-terraiq}@postgres:5432/terraiq
+      DATABASE_URL_SYNC: postgresql+psycopg2://terraiq:${POSTGRES_PASSWORD:-terraiq}@postgres:5432/terraiq
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      DEBUG: "false"
+      DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-pilot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.prod.Dockerfile
+      args:
+        VITE_API_URL: ""
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: terraiq
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-terraiq}
+      POSTGRES_DB: terraiq
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terraiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_user, get_db
 from api.models.job_batch import JobBatch
 from api.schemas.batch import BatchCreate, BatchListPage, BatchResponse
+from api.services.plans import assert_can_create_jobs
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
@@ -20,7 +21,9 @@ async def create_batch(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _user, fleet = current_user
+    user, fleet = current_user
+    n = len(body.corridor_ids)
+    await assert_can_create_jobs(db, fleet, max(n, 1), actor_email=user.email)
     batch = JobBatch(
         id=str(uuid.uuid4()),
         fleet_id=fleet.id,
